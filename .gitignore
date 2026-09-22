@@ -1,0 +1,18 @@
+# --- secrets: never upload ---
+riot_key.txt
+.env
+
+# --- data: too big for GitHub, and it stays on the machine that collects it ---
+*.db
+*.db-wal
+*.db-shm
+raw/
+raw_matches/
+csv/
+
+# --- logs / machine-specific ---
+collector.log*
+__pycache__/
+*.pyc
+.DS_Store
+Thumbs.db
