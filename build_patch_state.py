@@ -285,6 +285,59 @@ def item_features(con, version):
 
 
 # --------------------------------------------------------------------------- #
+def fill_gaps(per_patch):
+    """
+    Derived features can vanish in some patches for reasons that aren't balance
+    changes (Riot renaming a value, or a formula using a part type we can't read yet).
+    Fill those gaps from the nearest patch where the value was read properly, so the
+    model doesn't see fake jumps. per_patch: list of (patch, {champion: features}).
+    """
+    by_champ = defaultdict(list)  # champion -> [(index, features)]
+    for i, (_, cf) in enumerate(per_patch):
+        for cid, f in cf.items():
+            by_champ[cid].append((i, f))
+    filled = 0
+    for cid, seq in by_champ.items():
+        def nearest(k, test):
+            for dist in range(1, len(seq)):
+                for j in (k - dist, k + dist):      # prefer the earlier patch on ties
+                    if 0 <= j < len(seq) and test(seq[j][1]):
+                        return seq[j][1]
+            return None
+        # crowd-control durations (read from value names, which Riot sometimes renames)
+        cc_keys = {k for _, f in seq for k in f if k.startswith("cc_") and k != "cc_hard_total"}
+        for k, (_, f) in enumerate(seq):
+            for key in cc_keys:
+                if key not in f:
+                    src = nearest(k, lambda g: key in g)
+                    if src is not None:
+                        f[key] = src[key]
+                        filled += 1
+        # formulas that became only partly readable and lost their value
+        for k, (_, f) in enumerate(seq):
+            for slot in ["P"] + SLOTS:
+                for cat in DAMAGE_CATS:
+                    pre = f"{slot}_{cat}_"
+                    if f.get(pre + "partial") and not f.get(pre + "base_rmax"):
+                        src = nearest(k, lambda g: g.get(pre + "base_rmax") and not g.get(pre + "partial"))
+                        if src is not None:
+                            for key, v in src.items():
+                                if key.startswith(pre) and key != pre + "partial":
+                                    f[key] = v
+                            filled += 1
+        for _, f in seq:  # totals from the (possibly filled) per-ability values
+            for key in [k for k in f if k.startswith("total_") and not k.startswith("total_untyped")]:
+                del f[key]
+            for key, v in list(f.items()):
+                m = re.match(r"^[PQWER]_(magic|physical|true|heal|shield)_(base_rmax|ratio_.+)$", key)
+                if m:
+                    tk = f"total_{m.group(1)}_{m.group(2)}"
+                    f[tk] = f.get(tk, 0) + v
+            f["cc_hard_total"] = sum(v for kk, v in f.items()
+                                     if kk.startswith("cc_") and kk[3:-4] in HARD_CC)
+    return filled
+
+
 def changes(prev, cur):
     """Yield (entity_id, feature, old, new) for everything that differs."""
     for eid in sorted(set(prev) | set(cur)):
@@ -296,7 +349,16 @@ def changes(prev, cur):
             yield eid, "_removed", 1.0, None
             continue
         for feat in sorted(set(a) | set(b)):
-            if feat.startswith(NOT_BALANCE):
+            if feat.startswith(NOT_BALANCE) or feat.startswith("cc_"):
+                continue  # labels, and CC read from value names (renames); real CC
+                          # changes still show up in the raw data_ values
+            m = re.match(r"^([PQWER])_(magic|physical|true|heal|shield)_", feat)
+            if m and a.get(f"{m.group(1)}_{m.group(2)}_partial", 0) != \
+                    b.get(f"{m.group(1)}_{m.group(2)}_partial", 0):
+                continue  # formula flipped between fully / partly readable
+            m = re.match(r"^total_(magic|physical|true|heal|shield)_", feat)
+            if m and any(a.get(f"{s}_{m.group(1)}_partial", 0) != b.get(f"{s}_{m.group(1)}_partial", 0)
+                         for s in ["P"] + SLOTS):
                 continue
             if feat.startswith("data_") and (feat not in a or feat not in b):
                 continue  # a raw value appearing/disappearing is usually a rename
@@ -321,11 +383,18 @@ def build(con):
                           "kind, name, rank, value);")
         print("Note: no CommunityDragon ability numbers yet (run fetch_ability_data.py) - "
               "building from Data Dragon only.")
-    prev_c = prev_i = prev_patch = None
-    summary = []
+    computed = []
     for patch, version in patches:
         cf, keys = champion_features(con, patch, version)
-        itf = item_features(con, version)
+        computed.append((patch, cf, keys, item_features(con, version)))
+    n_filled = fill_gaps([(p, cf) for p, cf, _, _ in computed])
+    if n_filled:
+        print(f"Filled {n_filled:,} values that were unreadable in some patches (renamed values "
+              f"or unsupported formula parts) from the nearest patch.")
+
+    prev_c = prev_i = prev_patch = None
+    summary = []
+    for patch, cf, keys, itf in computed:
         con.executemany("INSERT INTO patch_champion_features VALUES (?,?,?,?,?)",
                         [(patch, cid, keys.get(cid), k, v)
                          for cid, f in cf.items() for k, v in f.items()])
