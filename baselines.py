@@ -4,14 +4,18 @@ baselines.py  -  the simple predictions every real model has to beat.
 
 For every patch that has a previous patch with games, each baseline predicts each
 champion's winrate on the new patch WITHOUT looking at that patch's games, and is
-scored against what actually happened:
+scored against what actually happened. Testing is FORWARD IN TIME: anything a baseline
+learns comes only from patches BEFORE the one being tested - exactly the situation
+when predicting a real new patch.
 
   coin flip          every champion 50%
   nothing changes    last patch's winrate
   shrunk last patch  last patch's winrate pulled toward 50% (how much is learned
-                     from the other patches - accounts for winrates being noisy)
+                     from earlier patches - accounts for winrates being noisy)
+  recent patches     the last few patches' winrate (older ones count less), pulled
+                     toward 50% - steadier than one patch of noisy games
   balance changes    shrunk last patch + a ridge regression on what changed in the
-                     champion's numbers this patch (trained on the other patches)
+                     champion's numbers this patch (trained on earlier patches)
 
 Scores (games-weighted, champions with >= 30 games):
   MAE          average miss in winrate points
@@ -97,6 +101,8 @@ def main(argv=None):
     args = ap.parse_args(argv)
 
     cp = load(args.dir)
+    from train_change_model import recent_strength
+    cp["recent_winrate"] = recent_strength(cp)
     ev = cp[(cp["games"] >= MIN_GAMES) & cp["prev_winrate_smoothed"].notna()
             & (cp["prev_games"].fillna(0) > 0)].copy()
     patches = sorted(ev["patch"].unique(), key=pkey)
@@ -115,15 +121,21 @@ def main(argv=None):
     rows, detail = [], []
     for p in patches:
         test = ev[ev["patch"] == p]
-        train = ev[ev["patch"] != p]
+        train = ev[ev["patch"].map(pkey) < pkey(p)]   # only the past
         truth, w = test["winrate"].values, test["games"].values
         prev = test["prev_winrate_smoothed"].values
         # sampling noise: expected miss of a perfect prediction
         pbar = test["winrate_smoothed"].values
         floor = float(np.sum(w * np.sqrt(pbar * (1 - pbar) / w) * np.sqrt(2 / np.pi)) / np.sum(w))
         preds = {"coin flip": np.full(len(test), 0.5), "nothing changes": prev}
-        k = fit_shrink(train) if len(train) else 0.5
+        k = fit_shrink(train) if len(train) else 0.5   # first patch: no history yet
         preds["shrunk last patch"] = 0.5 + k * (prev - 0.5)
+        if len(train):
+            tr = train[train["recent_winrate"].notna()]
+            x = tr["recent_winrate"].values - 0.5
+            kr = float(np.sum(tr["games"] * x * (tr["winrate"] - 0.5)) / np.sum(tr["games"] * x * x))
+            rec = test["recent_winrate"].fillna(test["prev_winrate_smoothed"]).values
+            preds["recent patches"] = 0.5 + kr * (rec - 0.5)
         if len(train) >= 50 and delta_cols:
             raw = fit_ridge(train, delta_cols, k, args.alpha)(test)
             base = preds["shrunk last patch"]
@@ -166,9 +178,8 @@ def main(argv=None):
         gap = (r["MAE"] - r["noise floor"]) * 100
         print(f"  {name:<18} MAE {r['MAE'] * 100:.2f} pts   (noise floor {r['noise floor'] * 100:.2f}"
               f" pts, {gap:+.2f} above it)")
-    print(f"\nEvaluated {len(patches)} patch(es): {', '.join(patches)}. With few patches the "
-          f"'balance changes' model has very little to learn from - expect it to improve as "
-          f"more patches fill in.")
+    print(f"\nEvaluated {len(patches)} patch(es): {', '.join(patches)}. Each was predicted "
+          f"using only earlier patches, so early patches have little history to learn from.")
     os.makedirs(args.dir, exist_ok=True)
     res.to_csv(os.path.join(args.dir, "baseline_results.csv"), index=False)
     if detail:

@@ -64,6 +64,10 @@ MAX_CHANGE = 0.05
 PARAMS = dict(n_estimators=4000, learning_rate=0.01, num_leaves=7, min_child_samples=800,
               subsample=0.8, subsample_freq=1, colsample_bytree=0.3, reg_lambda=20.0,
               verbose=-1)
+# Linear trees: each leaf fits a small straight line instead of one number, so the model
+# reacts smoothly to small stat changes. Tested on 82k games (Sept 2026): same accuracy as
+# normal trees, so it's off by default. Try again with more games: --linear-trees
+LINEAR_TREES = {"on": False, "linear_lambda": 1.0}
 
 
 def pkey(p):
@@ -147,7 +151,9 @@ class GameModel:
                 "num_leaves": p["num_leaves"], "min_data_in_leaf": p["min_child_samples"],
                 "bagging_fraction": p["subsample"], "bagging_freq": p["subsample_freq"],
                 "feature_fraction": p["colsample_bytree"], "lambda_l2": p["reg_lambda"],
-                "verbose": -1, "seed": seed, "num_threads": os.cpu_count() or 1}
+                "verbose": -1, "seed": seed, "num_threads": os.cpu_count() or 1,
+                **({"linear_tree": True, "linear_lambda": LINEAR_TREES["linear_lambda"]}
+                   if LINEAR_TREES["on"] else {})}
 
     def fit(self, df, seed=0):
         X = design(df, self.variant, self.platforms, self.num_cols)
@@ -292,8 +298,9 @@ class Rescorer:
         return eff.reset_index()
 
 
-def shrink_k(cp, exclude):
-    t = cp[(cp["patch"] != exclude) & (cp["games"] >= MIN_CHAMP_GAMES)
+def shrink_k(cp, before):
+    """How much of last patch's winrate carries over, learned from patches BEFORE `before`."""
+    t = cp[(cp["patch"].map(pkey) < pkey(before)) & (cp["games"] >= MIN_CHAMP_GAMES)
            & cp["prev_winrate_smoothed"].notna() & (cp["prev_games"].fillna(0) > 0)]
     if t.empty:
         return 0.5
@@ -306,7 +313,7 @@ def shrink_k(cp, exclude):
 def evaluate(games, cp, rescorer, platforms, num_cols):
     patches = sorted(games["patch"].unique(), key=pkey)
     counts = games.groupby("patch").size()
-    results, champ_rows = [], []
+    results, champ_rows, game_rows, eff_rows = [], [], [], []
     for i, test_patch in enumerate(patches):
         earlier = patches[:i]
         if counts[test_patch] < MIN_TEST_GAMES or not earlier:
@@ -323,14 +330,19 @@ def evaluate(games, cp, rescorer, platforms, num_cols):
         k = shrink_k(cp, test_patch)
         prev_patch = earlier[-1]
         prev_games = games[games["patch"] == prev_patch]
+        gp = test[["match_id", "patch", "platform", "rank_bucket", "blue_win"] + ID_COLS].copy()
         for variant in ("numbers", "identity"):
             gm = GameModel(variant, platforms, num_cols).fit(train)
             p = gm.predict(test)
+            gp[f"p_{variant}"] = p
             row[f"{variant} logloss"] = logloss(y, p)
             row[f"{variant} AUC"] = auc(y, p)
             row[f"{variant} acc"] = float(np.mean((p > 0.5) == (y == 1)))
-            if len(truth):
+            if len(truth) and rescorer is not None:
                 eff = rescorer.champion_effect(gm, prev_games, test_patch)
+                e = eff[["champ_key", "champion_id", "effect", "sample"]].copy()
+                e["patch"], e["variant"] = test_patch, variant
+                eff_rows.append(e)
                 t = truth.merge(eff[["champ_key", "effect"]], on="champ_key", how="left")
                 t["effect"] = t["effect"].fillna(0).clip(-MAX_CHANGE, MAX_CHANGE)
                 shrunk = 0.5 + k * (t["prev_winrate_smoothed"] - 0.5)
@@ -352,11 +364,12 @@ def evaluate(games, cp, rescorer, platforms, num_cols):
                     tt = t[ch][["patch", "champion_id", "games", "effect"]].copy()
                     tt["actual_change"] = actual[ch]
                     champ_rows.append(tt)
+        game_rows.append(gp)
         results.append(row)
         print(f"  tested {test_patch}: trained on {len(train):,} games from {len(earlier)} "
               f"earlier patch(es)")
-    return pd.DataFrame(results), (pd.concat(champ_rows, ignore_index=True) if champ_rows
-                                   else pd.DataFrame())
+    cat = lambda rows: pd.concat(rows, ignore_index=True) if rows else pd.DataFrame()
+    return pd.DataFrame(results), cat(champ_rows), cat(game_rows), cat(eff_rows)
 
 
 def print_results(res, champs):
@@ -397,7 +410,10 @@ def main(argv=None):
     ap.add_argument("--models", default="models")
     ap.add_argument("--predict", default=None, help="predict winrate changes for this patch")
     ap.add_argument("--skip-eval", action="store_true", help="only train the final models")
+    ap.add_argument("--linear-trees", action="store_true",
+                    help="LightGBM linear trees (smoother reaction to small stat changes)")
     args = ap.parse_args(argv)
+    LINEAR_TREES["on"] = args.linear_trees
 
     games = load_table(args.dir, "games")
     cp = load_table(args.dir, "champion_patch")
@@ -405,8 +421,12 @@ def main(argv=None):
     platforms = sorted(games["platform"].unique())
     print(f"{len(games):,} games, {games['patch'].nunique()} patches, {len(num_cols)} number "
           f"features per game")
-    rescorer = Rescorer(args.db)
+    rescorer = Rescorer(args.db) if os.path.exists(args.db) else None
+    if rescorer is None:
+        print(f"  NOTE: {args.db} not found - champion-level patch effects are skipped.")
 
+    if args.predict and rescorer is None:
+        sys.exit(f"--predict needs {args.db}.")
     if args.predict:
         target = args.predict
         earlier = [p for p in sorted(games["patch"].unique(), key=pkey) if pkey(p) < pkey(target)]
@@ -426,10 +446,20 @@ def main(argv=None):
 
     if not args.skip_eval:
         print("\nEvaluating (train on earlier patches, test on the next one) ...")
-        res, champs = evaluate(games, cp, rescorer, platforms, num_cols)
+        res, champs, game_preds, effects = evaluate(games, cp, rescorer, platforms, num_cols)
         print_results(res, champs)
         os.makedirs(args.dir, exist_ok=True)
         res.to_csv(os.path.join(args.dir, "model_results.csv"), index=False)
+        # for the diagnostics report: every test game's prediction + per-champion effects
+        if len(game_preds):
+            try:
+                game_preds.to_parquet(os.path.join(args.dir, "game_test_predictions.parquet"),
+                                      index=False)
+            except Exception:
+                game_preds.to_csv(os.path.join(args.dir, "game_test_predictions.csv.gz"),
+                                  index=False)
+        if len(effects):
+            effects.to_csv(os.path.join(args.dir, "game_model_effects.csv"), index=False)
 
     print("\nTraining final models on all games ...")
     os.makedirs(args.models, exist_ok=True)
@@ -448,6 +478,11 @@ def main(argv=None):
                        "trees": int(gm.trees),
                        "patches": sorted(games["patch"].unique(), key=pkey)}, f)
         print(f"  saved {path} ({gm.trees} trees)")
+        if variant == "numbers" and gm.engine != "sklearn":
+            imp = pd.Series(gm.booster.feature_importance("gain"), index=gm.booster.feature_name())
+            (imp / imp.sum()).sort_values(ascending=False).rename("share").rename_axis(
+                "feature").reset_index().to_csv(os.path.join(args.models,
+                                                             "importance_numbers.csv"), index=False)
         if variant == "numbers":
             print("  what the numbers model relies on most:")
             for name, share in gm.importance(12).items():

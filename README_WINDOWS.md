@@ -90,6 +90,21 @@ Every 15 minutes each region prints a `HEALTH` line, for example:
 
 Stop the collector before editing the settings, then start it again.
 
+## Updating the model: one click
+
+Double-click **`update_model.bat`** (or run `python run_pipeline.py`). It runs every step
+below in order: new ability data, patch numbers, training tables, baselines, the
+patch-change model, the game model, and finally the diagnostics report (`report.html`,
+which opens in your browser when it's done). It stops with a clear message if anything fails, and saves all output to
+`pipeline.log`. It's safe to run while the collector keeps going.
+
+- `python run_pipeline.py --quick` retrains the model without testing it patch by patch
+  (much faster once there's a lot of data).
+- `python run_pipeline.py --skip-fetch` skips checking CommunityDragon for new patches.
+- `python run_pipeline.py --only-data` updates the data and tables, but not the model.
+
+The sections below describe each step, if you ever want to run one by itself.
+
 ## Ability numbers and patch changes (model inputs)
 
 These two scripts turn the balance data into numbers for the model. Neither uses your
@@ -143,6 +158,54 @@ python train_game_model.py --predict 16.18  # predicted effect of a patch's bala
   are close to coin flips, so small numbers (0.52-0.55) are normal. It grows with more
   games.
 - Re-run it whenever more games have been collected.
+
+## The patch-change model
+
+```
+python train_change_model.py                  # tests it on past patches (seconds)
+python train_change_model.py --predict 16.19  # predicted winrate change per changed champion
+```
+
+- Learns directly from past patches: "this champion got -8% base damage, is a mage, was
+  already strong ... and their winrate moved by X". Works for a brand-new patch before
+  any games are played, as soon as its balance data is loaded.
+- Starts from each champion's **recent strength** (last few patches, older ones count
+  less), which is steadier than last patch alone.
+- Reworks (25+ changed numbers) are flagged rather than read as % changes.
+- It tests itself on the latest patches first. If adding the balance changes doesn't
+  beat "no effect", it switches itself off for that patch (`alpha none` in the table).
+  That means the games are still too noisy to separate balance effects from luck. It
+  switches on more often as more games per patch are collected.
+- `--predict` saves `training/predicted_changes_<patch>.csv`.
+
+`python train_game_model.py --linear-trees` tries LightGBM linear trees (smoother
+reaction to small stat changes). Off by default because it didn't help on 82k games.
+
+## The diagnostics report (report.html)
+
+`python diagnostics.py` (run automatically by `update_model.bat`) builds `report.html`
+from what the other steps saved. It takes seconds and retrains nothing. Sections:
+
+1. **Luck or real mistakes?** Every miss compared with how much that champion's winrate
+   wobbles by chance (fewer games = more wobble). About 95% of misses should be within 2
+   wobbles. The extra is the model's **own error**.
+2. **Where the misses happen**, by changed/unchanged/rework, buff or nerf size, role,
+   class, number of games and how strong the champion was. Also shows **bias**: + means
+   predicted too high.
+3. **Champions the model keeps getting wrong**, missed in the same direction patch after
+   patch. That's a real pattern, not luck.
+4. **Calibration**: when it says 52% (or +2 points), is that what happens on average?
+5. **Why**: the three inputs that pushed each prediction most, and what the change model
+   learned. Weights learned from fewer than 10 champions are marked shaky.
+6. **Patch by patch**, every method next to the luck floor.
+7. **Game model**: accuracy per patch, region and rank, calibration, champions it
+   misjudges, and what it relies on.
+8. **Data checks**: games per patch, suspiciously large changes (possible reading
+   errors) and reworks.
+
+The same group numbers are also saved to `training/diagnostics_breakdown.csv`, and every
+single prediction (with its miss, luck wobble and reasons) to
+`training/change_model_predictions.csv`, for Excel.
 
 ## What gets saved
 

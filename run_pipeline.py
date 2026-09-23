@@ -7,7 +7,9 @@ Runs, in order:
   2. build_patch_state.py      champion / item numbers per patch + what changed
   3. build_training_tables.py  games table + champion-patch table
   4. baselines.py              simple predictions to compare against
-  5. train_game_model.py       test the main model on unseen patches, train final models
+  5. train_change_model.py     champion-level model of how balance changes move winrates
+  6. train_game_model.py       test the main model on unseen patches, train final models
+  7. diagnostics.py            report.html: where the models miss, and why
 
 Safe to run while the collector is running. Output is shown and also saved to
 pipeline.log. If a step fails, the pipeline stops and says which one.
@@ -16,7 +18,7 @@ Usage:
   python run_pipeline.py                 everything
   python run_pipeline.py --skip-fetch    don't check CommunityDragon for new patches
   python run_pipeline.py --quick         skip the per-patch model testing (just retrain)
-  python run_pipeline.py --only-data     steps 1-3 only (no baselines / model)
+  python run_pipeline.py --only-data     steps 1-3 only (no baselines / models)
 (or double-click update_model.bat)
 """
 
@@ -83,8 +85,10 @@ def main(argv=None):
     steps.append(("Training tables", ["build_training_tables.py"], False))
     if not args.only_data:
         steps.append(("Baselines", ["baselines.py"], False))
+        steps.append(("Patch-change model", ["train_change_model.py"], False))
         steps.append(("Main model", ["train_game_model.py"] + (["--skip-eval"] if args.quick else []),
                       False))
+        steps.append(("Diagnostics report", ["diagnostics.py"], True))
 
     t_start = time.time()
     with open(LOG, "w", encoding="utf-8") as fh:
@@ -95,6 +99,8 @@ def main(argv=None):
         total = time.time() - t_start
         log(f"\nAll {len(steps)} steps finished in {total / 60:.1f} min. "
             f"Full output saved to pipeline.log", fh)
+        if os.path.exists(os.path.join(HERE, "report.html")) and not args.only_data:
+            log("Diagnostics: open report.html in your browser.", fh)
 
 
 if __name__ == "__main__":
