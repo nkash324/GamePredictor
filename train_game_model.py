@@ -31,6 +31,10 @@ import os
 import sys
 import warnings
 
+# Windows 11 lacks the tool a helper library uses to count CPU cores; tell it directly
+# (silences a long, harmless warning)
+os.environ.setdefault("LOKY_MAX_CPU_COUNT", str(os.cpu_count() or 1))
+
 import numpy as np
 import pandas as pd
 
@@ -111,45 +115,68 @@ def design(df, variant, platforms, num_cols):
 
 
 class GameModel:
+    """
+    LightGBM "does blue win?" model. Data is handed to LightGBM as plain, contiguous
+    number arrays (the most compatible format - avoids crashes some Windows installs
+    have with pandas input).
+    """
+
     def __init__(self, variant, platforms, num_cols):
         self.variant, self.platforms, self.num_cols = variant, platforms, num_cols
-        self.model = None
-        self.cat_levels = None
+        self.booster = None
+        self.cat_levels = None   # champion keys, identity model only
+        self.names = None
 
-    def _cat(self, X):
-        if self.variant != "identity":
-            return X
+    def _matrix(self, X):
         X = X.copy()
-        for c in ID_COLS:
-            X[c] = pd.Categorical(X[c], categories=self.cat_levels)
-        return X
+        if self.variant == "identity":
+            code = {k: i for i, k in enumerate(self.cat_levels)}
+            for c in ID_COLS:
+                X[c] = X[c].map(code).astype(float)          # unknown champion -> NaN
+        return np.ascontiguousarray(X.to_numpy(dtype=np.float32))
+
+    @staticmethod
+    def _params(seed):
+        p = PARAMS
+        return {"objective": "binary", "learning_rate": p["learning_rate"],
+                "num_leaves": p["num_leaves"], "min_data_in_leaf": p["min_child_samples"],
+                "bagging_fraction": p["subsample"], "bagging_freq": p["subsample_freq"],
+                "feature_fraction": p["colsample_bytree"], "lambda_l2": p["reg_lambda"],
+                "verbose": -1, "seed": seed, "num_threads": os.cpu_count() or 1}
 
     def fit(self, df, seed=0):
         X = design(df, self.variant, self.platforms, self.num_cols)
-        y = df["blue_win"].values
+        y = df["blue_win"].to_numpy(dtype=np.float64)
         if self.variant == "identity":
-            self.cat_levels = sorted(set(np.unique(X[ID_COLS].values)) | {-1})
+            self.cat_levels = sorted(int(v) for v in np.unique(X[ID_COLS].values) if v >= 0)
         rng = np.random.default_rng(seed)
         val = rng.random(len(X)) < 0.15             # validation split, by game
         Xa = pd.concat([X, mirror(X, self.variant)], ignore_index=True)
-        ya = np.concatenate([y, 1 - y])
+        self.names = list(Xa.columns)
+        M = self._matrix(Xa)
+        ya = np.ascontiguousarray(np.concatenate([y, 1.0 - y]))
         va = np.concatenate([val, val])
-        self.model = lgb.LGBMClassifier(random_state=seed, **PARAMS)
-        self.model.fit(self._cat(Xa[~va]), ya[~va], eval_set=[(self._cat(Xa[va]), ya[va])],
-                       callbacks=[lgb.early_stopping(100, verbose=False)])
-        self.trees = self.model.best_iteration_ or PARAMS["n_estimators"]
+        cats = [self.names.index(c) for c in ID_COLS] if self.variant == "identity" else "auto"
+        dtrain = lgb.Dataset(np.ascontiguousarray(M[~va]), label=np.ascontiguousarray(ya[~va]),
+                             feature_name=self.names, categorical_feature=cats)
+        dval = lgb.Dataset(np.ascontiguousarray(M[va]), label=np.ascontiguousarray(ya[va]),
+                           reference=dtrain)
+        self.booster = lgb.train(self._params(seed), dtrain,
+                                 num_boost_round=PARAMS["n_estimators"], valid_sets=[dval],
+                                 callbacks=[lgb.early_stopping(100, verbose=False)])
+        self.trees = self.booster.best_iteration or PARAMS["n_estimators"]
         return self
 
     def predict(self, df):
         """P(blue wins), averaged over both side views so it's symmetric."""
         X = design(df, self.variant, self.platforms, self.num_cols)
-        p1 = self.model.predict_proba(self._cat(X))[:, 1]
-        p2 = self.model.predict_proba(self._cat(mirror(X, self.variant)))[:, 1]
+        p1 = self.booster.predict(self._matrix(X), num_iteration=self.trees)
+        p2 = self.booster.predict(self._matrix(mirror(X, self.variant)), num_iteration=self.trees)
         return (p1 + (1 - p2)) / 2
 
     def importance(self, top=15):
-        imp = pd.Series(self.model.booster_.feature_importance("gain"),
-                        index=self.model.booster_.feature_name())
+        imp = pd.Series(self.booster.feature_importance("gain"),
+                        index=self.booster.feature_name())
         return (imp / imp.sum()).sort_values(ascending=False).head(top)
 
 
@@ -364,7 +391,7 @@ def main(argv=None):
     for variant in ("numbers", "identity"):
         gm = GameModel(variant, platforms, num_cols).fit(games)
         path = os.path.join(args.models, f"game_model_{variant}.txt")
-        gm.model.booster_.save_model(path)
+        gm.booster.save_model(path, num_iteration=gm.trees)
         with open(os.path.join(args.models, f"game_model_{variant}.json"), "w") as f:
             json.dump({"variant": variant, "platforms": platforms, "num_cols": num_cols,
                        "cat_levels": [int(v) for v in gm.cat_levels] if gm.cat_levels else None,
