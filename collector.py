@@ -436,17 +436,33 @@ class RegionWorker(threading.Thread):
                     return
 
     def seed_if_needed(self):
+        """(Re)load the ladder when it's due, or when players or ranks are missing."""
         key = f"seeded:{self.platform}"
         last = get_state(self.con, key)
-        n = self.con.execute("SELECT COUNT(*) FROM players WHERE platform = ?",
-                             (self.platform,)).fetchone()[0]
-        if n and last and time.time() - float(last) < self.cfg["reseed_players_days"] * 86400:
+        due = not last or time.time() - float(last) >= self.cfg["reseed_players_days"] * 86400
+        fresh_cut = time.time() - self.cfg["reseed_players_days"] * 86400
+        have_tiers = {t for (t,) in self.con.execute(
+            "SELECT DISTINCT tier FROM players WHERE platform = ? AND seeded_at >= ?",
+            (self.platform, fresh_cut))}
+        missing = [t for t in self.cfg["tiers"] if t not in have_tiers]
+        if not due and not missing:
             return False
-        self.say(f"loading ladder players: {', '.join(self.cfg['tiers'])}")
+        if not due:  # only missing tiers: don't retry more than every 6 hours
+            last_try = get_state(self.con, f"seed_retry:{self.platform}")
+            if last_try and time.time() - float(last_try) < 6 * 3600:
+                return False
+            set_state(self.con, f"seed_retry:{self.platform}", time.time())
+        why = "scheduled refresh" if due else f"no up-to-date players for {', '.join(missing)}"
+        self.say(f"loading ladder players ({why}): {', '.join(self.cfg['tiers'])}")
         added = seed_players(self.api_platform, self.con, self.platform, self.cfg["tiers"],
                              self.cfg["ladder_pages_per_division"])
         set_state(self.con, key, time.time())
-        self.say(f"{added} new players added")
+        n = self.con.execute("SELECT COUNT(*) FROM players WHERE platform = ? AND seeded_at >= ?",
+                             (self.platform, fresh_cut)).fetchone()[0]
+        self.say(f"{added} new players added, {n} players with up-to-date ranks")
+        if n == 0:
+            self.say("!!! could not load any ladder players - check the lines above "
+                     "(API key access to league-v4?)")
         return True
 
     def count(self, patch, bucket):
@@ -515,6 +531,10 @@ class RegionWorker(threading.Thread):
             return True
         rank_source = "ladder" if is_open else "estimate"
         stored = self.count(patch, bucket)
+        start_stored, tried, empty_players = stored, 0, 0
+        if not is_open and end - start < 3 * 86400:
+            self.say(f"{patch}: warning - patch window is only {(end - start) / 86400:.1f} days; "
+                     f"dates may be off, expect few games")
         last_log = time.time()
         params = {"queue": fmd.QUEUE_ID, "type": "ranked", "startTime": int(start),
                   "endTime": int(end), "count": per_player}
@@ -527,6 +547,8 @@ class RegionWorker(threading.Thread):
             ids = self.api_regional.get(self.regional,
                                         f"/lol/match/v5/matches/by-puuid/{puuid}/ids",
                                         params=params) or []
+            tried += 1
+            empty_players += not ids
             for mid in ids:
                 if mid in self.have:
                     continue
@@ -563,10 +585,19 @@ class RegionWorker(threading.Thread):
             con.commit()
             if time.time() - last_log > 120 or stored >= target:
                 self.say(f"{patch} {bucket}: {stored}/{target} matches | "
-                         f"{self.rate_per_hour():,.0f} matches/hr")
+                         f"{self.rate_per_hour():,.0f} matches/hr | players checked {tried:,} "
+                         f"({empty_players / tried:.0%} had no games in this patch)")
                 last_log = time.time()
             if stored >= target:
                 return False
+            # Low-yield guard: if these players barely played this patch, don't spend
+            # hours of requests on them - move on and come back later.
+            gained = stored - start_stored
+            if tried >= 150 and gained < tried / 20:
+                self.say(f"{patch} {bucket}: only {gained} new games from {tried} players "
+                         f"({empty_players / tried:.0%} had no games in this patch window) - "
+                         f"moving on, will retry in 12h")
+                return True
         self.say(f"{patch} {bucket}: ran out of players at {stored}/{target} for this stage "
                  f"(raise ladder_pages_per_division in the config for more)")
         return True
@@ -703,6 +734,17 @@ def main(argv=None):
     con.executescript(fmd.SCHEMA)
     migrate(con)
     con.executescript(EXTRA_SCHEMA)
+    if get_state(con, "dater_version") != "2":
+        # patch dates from older versions could be too narrow: recompute them (the
+        # sampled games they were based on are kept) and let every player be
+        # searched again against the corrected windows. No matches are lost.
+        n = con.execute("SELECT COUNT(*) FROM patch_windows").fetchone()[0]
+        con.execute("DELETE FROM patch_windows")
+        con.execute("DELETE FROM crawl_log")
+        con.commit()
+        set_state(con, "dater_version", "2")
+        if n:
+            log.info(f"Upgraded patch dating: recomputing {n} saved patch windows")
 
     log.info("Rank mix, live patch: " + ", ".join(f"{b} {v:.0%}" for b, v in
              cfg["rank_mix_current"].items()) + " | past patches: " +

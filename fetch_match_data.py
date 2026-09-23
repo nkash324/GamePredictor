@@ -291,6 +291,7 @@ class RiotAPI:
         self.forbidden = {}       # endpoint -> time it was refused (retried after 1h)
         self.n_requests = 0
         self.stats = collections.Counter()  # diagnostics, read by the collector
+        self.last_ok_url = None   # a URL that worked with this key (used to test the key)
         self.status_route = status_route
         self.log = log
         self.stop_event = stop_event
@@ -371,32 +372,59 @@ class RiotAPI:
                 self.method_calls[method].append(self.calls[-1])
 
     def _key_is_valid(self):
-        """Distinguish 'bad key' from 'this endpoint is forbidden'."""
-        if not self.status_route:
+        """
+        Distinguish 'the key is dead' from 'this key may not use this endpoint'.
+        Tries several endpoints; if ANY of them works, the key is fine. (Product
+        keys don't always have access to every API, so no single endpoint is a
+        reliable test.)
+        """
+        probes = []
+        if self.last_ok_url:
+            probes.append(self.last_ok_url)
+        if self.status_route:
+            base = self.host.format(route=self.status_route)
+            probes += [base + "/lol/league/v4/challengerleagues/by-queue/" + QUEUE_NAME,
+                       base + "/lol/status/v4/platform-data"]
+        if not probes:
             return False
-        try:
-            r = self.s.get(self.host.format(route=self.status_route) +
-                           "/lol/status/v4/platform-data", timeout=30)
-            return r.status_code == 200
-        except requests.RequestException:
-            return True  # network trouble, not a key problem
+        for url in probes:
+            try:
+                self._wait_for_slot()
+                r = self.s.get(url, timeout=30)
+                self.stats["requests"] += 1
+            except requests.RequestException:
+                return True  # network trouble, not a key problem
+            if r.status_code in (200, 404, 429):
+                return True  # the key was accepted
+        return False
 
     def _wait_for_new_key(self):
         rejected = self.key
         if not self.key_file:
             sys.exit("Riot API rejected the key (401/403). Development keys expire "
                      "every 24h: get a fresh one at developer.riotgames.com")
-        self.log(f"!!! API key rejected (expired?). Paste a new key into "
-                 f"{os.path.abspath(self.key_file)} - collection resumes automatically.")
+        self.log(f"!!! API key rejected by every endpoint tried (expired or invalid?). Paste a "
+                 f"new key into {os.path.abspath(self.key_file)} - collection resumes "
+                 f"automatically.")
+        waited = 0
         while True:
             self.stats["wait_key_s"] += 20
             self._sleep(20)
+            waited += 20
             k = self._read_key_file()
             if k and k != rejected:
                 self.key = k
                 self.s.headers["X-Riot-Token"] = k
+                self.forbidden.clear()
                 self.log("    new API key found, resuming")
                 return
+            if waited % 600 == 0:  # every 10 min: maybe it was a temporary Riot problem
+                if self._key_is_valid():
+                    self.log("    the key works again, resuming")
+                    return
+                if waited % 3600 == 0:
+                    self.log(f"!!! still waiting for a working API key in "
+                             f"{os.path.abspath(self.key_file)}")
 
     # -- main call --------------------------------------------------------- #
     def get(self, route, path, params=None, retries=5):
@@ -428,6 +456,7 @@ class RiotAPI:
             self.stats["requests"] += 1
             self._adopt_header_limits(r.headers, method)
             if r.status_code == 200:
+                self.last_ok_url = r.url
                 data = r.json()
                 self.stats["empty" if data in ([], {}, None) else "ok"] += 1
                 return data
@@ -621,8 +650,12 @@ class PatchDater:
                 return ts, patch
         return None
 
-    def first_time(self, pred, max_lookback_days=800):
-        """Earliest time at which pred(patch) becomes True (pred must flip once)."""
+    def first_time(self, pred, max_lookback_days=800, prefer="late"):
+        """Earliest time at which pred(patch) becomes True (pred must flip once).
+        prefer: which side to pick when the exact time can't be pinned down -
+        'early' for a patch start and 'late' for a patch end, so an uncertain
+        window errs on the wide side (a few extra games get filtered out) rather
+        than cutting off real games."""
         def bracket():
             lo = max((t for t, p in self.obs.items() if not pred(p)), default=None)
             hi = min((t for t, p in self.obs.items() if pred(p) and (lo is None or t > lo)),
@@ -638,16 +671,22 @@ class PatchDater:
             if hi is None:
                 return None  # condition not true even now (patch still live / future)
 
-        step = 7 * 86400
+        step, misses = 7 * 86400, 0
         while lo is None:  # step back in time until pred is False
             t = hi - step
             if t < now_ts() - max_lookback_days * 86400:
                 return hi
             r = self.probe(t, t + 12 * 3600)
             if r is None:
-                r = self.probe(t, t + 3 * 86400)
+                r = self.probe(t, t + 3 * 86400, tries=12)
             if r is None:
-                return hi  # no games found that far back
+                # an empty stretch doesn't mean the patch started here - keep
+                # looking further back, and only give up after several misses
+                misses += 1
+                if misses >= 4:
+                    return hi
+                step *= 2
+                continue
             lo, hi = bracket()
             step *= 2
 
@@ -662,8 +701,12 @@ class PatchDater:
                 if r is not None or w_end >= hi:
                     break
                 width *= 3
+            if r is None:  # nothing found yet: try harder with more players
+                r = self.probe(mid, hi, tries=12)
             if r is None:
-                break  # no games between mid and hi; boundary is ~hi
+                # still no games between mid and hi: the boundary is somewhere in
+                # (lo, hi) - pick the side that keeps the window wide
+                return lo if prefer == "early" else hi
             before = (lo, hi)
             lo, hi = bracket()
             if (lo, hi) == before:
@@ -677,10 +720,10 @@ class PatchDater:
         if row and not refresh and not row[2]:
             return row[0], row[1]
         target = pkey(patch)
-        start = self.first_time(lambda p: pkey(p) >= target)
+        start = self.first_time(lambda p: pkey(p) >= target, prefer="early")
         if start is None:
             return None
-        end = self.first_time(lambda p: pkey(p) > target)
+        end = self.first_time(lambda p: pkey(p) > target, prefer="late")
         is_open = end is None
         end = end if end is not None else now_ts()
         self.con.execute("INSERT OR REPLACE INTO patch_windows VALUES (?,?,?,?,?)",
