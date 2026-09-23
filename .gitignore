@@ -12,6 +12,7 @@ csv/
 
 # --- logs / machine-specific ---
 collector.log*
+pipeline.log
 __pycache__/
 *.pyc
 .DS_Store

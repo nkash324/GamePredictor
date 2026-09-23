@@ -127,6 +127,23 @@ python baselines.py               # scores simple predictions per patch
 Re-run both whenever the collector has added games or a new patch arrives (after
 `build_patch_state.py`).
 
+## The main model
+
+Needs once: `pip install lightgbm`
+
+```
+python train_game_model.py                  # ~30 s now, longer as data grows
+python train_game_model.py --predict 16.18  # predicted effect of a patch's balance changes
+```
+
+- Trains a LightGBM "which team wins" model on every game, tests it on patches it never
+  saw (training only on earlier patches), and compares it with a coin flip and the
+  baselines. It then trains final models on all games and saves them to `models/`.
+- **AUC** (0.5 = coin flip) shows how well it predicts single games. In high elo, games
+  are close to coin flips, so small numbers (0.52-0.55) are normal. It grows with more
+  games.
+- Re-run it whenever more games have been collected.
+
 ## What gets saved
 
 - `lol_data.db`: everything the model uses (balance data, matches, players, objectives,
