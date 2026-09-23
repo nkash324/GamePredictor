@@ -45,7 +45,12 @@ warnings.filterwarnings("ignore", message=".*eval_set.*deprecated.*")
 try:
     import lightgbm as lgb
 except ImportError:
-    sys.exit("LightGBM is not installed. Run:  pip install lightgbm")
+    lgb = None
+
+# If LightGBM is missing or crashes (some Windows installs of LightGBM 4.7 do), the
+# model automatically switches to scikit-learn's HistGradientBoosting - the same idea
+# (many small decision trees), just a different library.
+ENGINE = {"use_sklearn": lgb is None, "warned": False}
 
 import build_training_tables as btt  # same folder: reuses the feature code
 
@@ -156,25 +161,65 @@ class GameModel:
         M = self._matrix(Xa)
         ya = np.ascontiguousarray(np.concatenate([y, 1.0 - y]))
         va = np.concatenate([val, val])
-        cats = [self.names.index(c) for c in ID_COLS] if self.variant == "identity" else "auto"
-        dtrain = lgb.Dataset(np.ascontiguousarray(M[~va]), label=np.ascontiguousarray(ya[~va]),
-                             feature_name=self.names, categorical_feature=cats)
-        dval = lgb.Dataset(np.ascontiguousarray(M[va]), label=np.ascontiguousarray(ya[va]),
-                           reference=dtrain)
-        self.booster = lgb.train(self._params(seed), dtrain,
-                                 num_boost_round=PARAMS["n_estimators"], valid_sets=[dval],
-                                 callbacks=[lgb.early_stopping(100, verbose=False)])
-        self.trees = self.booster.best_iteration or PARAMS["n_estimators"]
+        cats = [self.names.index(c) for c in ID_COLS] if self.variant == "identity" else []
+        if not ENGINE["use_sklearn"]:
+            try:
+                dtrain = lgb.Dataset(np.ascontiguousarray(M[~va]),
+                                     label=np.ascontiguousarray(ya[~va]),
+                                     feature_name=self.names, categorical_feature=cats or "auto")
+                dval = lgb.Dataset(np.ascontiguousarray(M[va]), label=np.ascontiguousarray(ya[va]),
+                                   reference=dtrain)
+                self.booster = lgb.train(self._params(seed), dtrain,
+                                         num_boost_round=PARAMS["n_estimators"],
+                                         valid_sets=[dval],
+                                         callbacks=[lgb.early_stopping(100, verbose=False)])
+                self.engine = "lightgbm"
+                self.trees = self.booster.best_iteration or PARAMS["n_estimators"]
+                return self
+            except OSError as e:
+                ENGINE["use_sklearn"] = True
+                print(f"  NOTE: LightGBM crashed on this computer ({e}). Switching to "
+                      f"scikit-learn's HistGradientBoosting (same technique). To try LightGBM "
+                      f"again later:  pip install \"lightgbm==4.6.0\"", flush=True)
+        self._fit_sklearn(M, ya, cats, seed)
         return self
+
+    def _fit_sklearn(self, M, y, cats, seed):
+        from sklearn.ensemble import HistGradientBoostingClassifier
+        if not ENGINE["warned"] and lgb is None:
+            print("  NOTE: LightGBM isn't installed - using scikit-learn's HistGradientBoosting.",
+                  flush=True)
+        ENGINE["warned"] = True
+        mask = np.zeros(M.shape[1], dtype=bool)
+        mask[cats] = True
+        kw = dict(learning_rate=PARAMS["learning_rate"], max_iter=PARAMS["n_estimators"],
+                  max_leaf_nodes=max(PARAMS["num_leaves"], 2),
+                  min_samples_leaf=PARAMS["min_child_samples"],
+                  l2_regularization=PARAMS["reg_lambda"], early_stopping=True,
+                  validation_fraction=0.15, n_iter_no_change=100, random_state=seed,
+                  categorical_features=mask if mask.any() else None)
+        try:
+            clf = HistGradientBoostingClassifier(max_features=PARAMS["colsample_bytree"], **kw)
+        except TypeError:  # older scikit-learn without max_features
+            clf = HistGradientBoostingClassifier(**kw)
+        clf.fit(M, y.astype(int))
+        self.booster, self.engine, self.trees = clf, "sklearn", int(clf.n_iter_)
 
     def predict(self, df):
         """P(blue wins), averaged over both side views so it's symmetric."""
         X = design(df, self.variant, self.platforms, self.num_cols)
-        p1 = self.booster.predict(self._matrix(X), num_iteration=self.trees)
-        p2 = self.booster.predict(self._matrix(mirror(X, self.variant)), num_iteration=self.trees)
+        if self.engine == "sklearn":
+            p1 = self.booster.predict_proba(self._matrix(X))[:, 1]
+            p2 = self.booster.predict_proba(self._matrix(mirror(X, self.variant)))[:, 1]
+        else:
+            p1 = self.booster.predict(self._matrix(X), num_iteration=self.trees)
+            p2 = self.booster.predict(self._matrix(mirror(X, self.variant)),
+                                      num_iteration=self.trees)
         return (p1 + (1 - p2)) / 2
 
     def importance(self, top=15):
+        if self.engine == "sklearn":
+            return pd.Series(dtype=float)  # not available for this engine
         imp = pd.Series(self.booster.feature_importance("gain"),
                         index=self.booster.feature_name())
         return (imp / imp.sum()).sort_values(ascending=False).head(top)
@@ -391,9 +436,14 @@ def main(argv=None):
     for variant in ("numbers", "identity"):
         gm = GameModel(variant, platforms, num_cols).fit(games)
         path = os.path.join(args.models, f"game_model_{variant}.txt")
-        gm.booster.save_model(path, num_iteration=gm.trees)
+        if gm.engine == "sklearn":
+            import joblib
+            path = os.path.join(args.models, f"game_model_{variant}.joblib")
+            joblib.dump(gm.booster, path)
+        else:
+            gm.booster.save_model(path, num_iteration=gm.trees)
         with open(os.path.join(args.models, f"game_model_{variant}.json"), "w") as f:
-            json.dump({"variant": variant, "platforms": platforms, "num_cols": num_cols,
+            json.dump({"variant": variant, "engine": gm.engine, "platforms": platforms, "num_cols": num_cols,
                        "cat_levels": [int(v) for v in gm.cat_levels] if gm.cat_levels else None,
                        "trees": int(gm.trees),
                        "patches": sorted(games["patch"].unique(), key=pkey)}, f)
