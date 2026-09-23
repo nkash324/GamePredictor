@@ -19,3 +19,6 @@ Thumbs.db
 
 # CommunityDragon download cache
 cdragon_cache/
+
+# generated training tables (rebuilt from lol_data.db)
+training/

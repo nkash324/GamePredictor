@@ -90,6 +90,24 @@ Every 15 minutes each region prints a `HEALTH` line, for example:
 
 Stop the collector before editing the settings, then start it again.
 
+## Ability numbers and patch changes (model inputs)
+
+These two scripts turn the balance data into numbers for the model. Neither uses your
+Riot API key, so they can run in a second PowerShell window while the collector runs.
+
+```
+python fetch_ability_data.py          # ~1 hour the first time: ability numbers per patch
+python build_patch_state.py           # a few seconds: champion/item features + patch changes
+```
+
+- `python fetch_ability_data.py --inspect Ahri` shows exactly what was read for one
+  champion (useful for checking, or to send to me).
+- `python build_patch_state.py --report 16.18` lists everything that changed in a patch,
+  like patch notes in numbers.
+- Re-run both after a new patch. `fetch_ability_data.py` only downloads what's new.
+- `fetch_ability_data.py --reparse` re-reads the downloaded files without downloading again
+  (after a parser fix).
+
 ## What gets saved
 
 - `lol_data.db`: everything the model uses (balance data, matches, players, objectives,
