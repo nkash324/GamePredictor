@@ -127,6 +127,19 @@ def field(d, *names, default=None):
             return d[n]
     return default
 
+def fnv1a(name):
+    """CommunityDragon's name hash: files made with an older name table show
+    references as '{8-hex-digits}' instead of the readable name."""
+    h = 0x811c9dc5
+    for ch in name.lower().encode():
+        h = ((h ^ ch) * 0x01000193) & 0xFFFFFFFF
+    return f"{{{h:08x}}}"
+
+
+from collections import Counter  # noqa: E402
+UNHANDLED = Counter()     # formula part types the parser doesn't understand
+MISSING_REFS = Counter()  # 'resolved' (hashed name matched) / 'missing' (not found)
+
 TOOLTIP_TAGS = {"magicdamage": "magic", "physicaldamage": "physical", "truedamage": "true",
                 "healing": "heal", "shield": "shield"}
 
@@ -181,6 +194,9 @@ class SpellParser:
             self.dv[name] = self._ranked(vals)
         self.calcs = {str(k).lower(): v for k, v in
                       (self.spell.get("mSpellCalculations") or {}).items()}
+        # hashed name -> readable name, for references written as '{8-hex}'
+        self.hashes = {fnv1a(n): n for n in list(self.dv) + list(self.calcs)
+                       if not n.startswith("{")}
         self.effects = self.spell.get("mEffectAmount") or []
 
     def _ranked(self, vals):
@@ -193,6 +209,22 @@ class SpellParser:
     def _const(self, v):
         return [v] * self.n
 
+    def _resolve(self, name, table):
+        name = str(name or "").lower()
+        if name in table:
+            return name
+        real = self.hashes.get(name)
+        if real in table:
+            MISSING_REFS["resolved"] += 1
+            return real
+        MISSING_REFS["missing"] += 1
+        return None
+
+    def _dv(self, name):
+        """(values, found) for a data value referenced by a formula."""
+        key = self._resolve(name, self.dv)
+        return (list(self.dv[key]), True) if key else (self._const(0.0), False)
+
     def _stat_key(self, part):
         stat = int(_num(part.get("mStat", 0)))
         formula = int(_num(part.get("mStatFormula", 0)))
@@ -204,7 +236,8 @@ class SpellParser:
             return Lin(n, complex_=True)
         t = str(p.get("__type", ""))
         if t == "NamedDataValueCalculationPart":
-            return Lin(n, list(self.dv.get(str(p.get("mDataValue", "")).lower(), self._const(0.0))))
+            vals, ok = self._dv(p.get("mDataValue"))
+            return Lin(n, vals, complex_=not ok)
         if t == "NumberCalculationPart":
             return Lin(n, self._const(_num(p.get("mNumber"))))
         if t == "EffectValueCalculationPart":
@@ -215,8 +248,8 @@ class SpellParser:
         if t == "StatByCoefficientCalculationPart":
             return Lin(n, ratios={self._stat_key(p): self._const(_num(p.get("mCoefficient")))})
         if t == "StatByNamedDataValueCalculationPart":
-            vals = self.dv.get(str(p.get("mDataValue", "")).lower(), self._const(0.0))
-            return Lin(n, ratios={self._stat_key(p): list(vals)})
+            vals, ok = self._dv(p.get("mDataValue"))
+            return Lin(n, ratios={self._stat_key(p): vals}, complex_=not ok)
         if t == "StatBySubPartCalculationPart":
             sub = self.part(p.get("mSubpart"), depth + 1)
             return Lin(n, ratios={self._stat_key(p): sub.base}, complex_=sub.complex)
@@ -241,13 +274,18 @@ class SpellParser:
             return self.calc(str(p.get("mGameCalculation", "")).lower(), depth + 1)
         if "mSpellCalculationKey" in p:  # reference to another formula (hashed type name)
             return self.calc(str(p.get("mSpellCalculationKey", "")).lower(), depth + 1)
+        UNHANDLED[t or "(no type)"] += 1
         return Lin(n, complex_=True)  # buff stacks, hashed types, ...
 
     def calc(self, name, depth=0):
-        c = self.calcs.get(name)
+        key = self._resolve(name, self.calcs) if name not in self.calcs else name
+        c = self.calcs.get(key) if key else None
         if not isinstance(c, dict) or depth > 12:
             return Lin(self.n, complex_=True)
         t = str(c.get("__type", ""))
+        if t not in ("", "GameCalculation", "GameCalculationModified",
+                     "GameCalculationConditional"):
+            UNHANDLED["calc:" + t] += 1
         if t == "GameCalculationModified":
             base = self.calc(str(c.get("mModifiedGameCalculation", "")).lower(), depth + 1)
             mult = self.part(c.get("mMultiplier"), depth + 1)
@@ -503,6 +541,12 @@ def report(con):
         print("\nbase stats, game files vs Data Dragon:  " + ", ".join(
             f"{st} {m / n:.0%} agree" + (f" ({z} zero in Data Dragon)" if z else "")
             for st, n, m, z in agree))
+    if MISSING_REFS:
+        print(f"\nformula references: {MISSING_REFS['resolved']:,} hashed names resolved, "
+              f"{MISSING_REFS['missing']:,} not found (flagged as partly captured)")
+    if UNHANDLED:
+        print("formula part types not understood (most common): " +
+              ", ".join(f"{t} x{n:,}" for t, n in UNHANDLED.most_common(12)))
     bad = con.execute("SELECT COUNT(*) FROM cd_files WHERE status = 200 AND cd_checked > 0 "
                       "AND cd_match * 2 < cd_checked").fetchone()[0]
     if bad:

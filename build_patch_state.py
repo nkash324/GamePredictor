@@ -69,6 +69,9 @@ HARD_CC = {"stun", "root", "knockup", "charm", "fear", "taunt", "sleep", "suppre
 
 
 FIXES = []  # (patch, stat) where Data Dragon was replaced by game-file values
+RAW_DATA = {}  # patch -> {champion: {data_<slot>_<name>_<rank>: value}} for change detection
+# labels, not balance: never reported as changes
+NOT_BALANCE = ("class_", "rating_", "resource_", "has_ability_numbers")
 
 
 def pkey(p):
@@ -224,11 +227,34 @@ def champion_features(con, patch, version):
                 amt = amt / 100 if amt > 1 else amt
                 if 0 < amt <= 1:
                     f["cc_slow_max"] = max(f.get("cc_slow_max", 0), amt)
+    # abilities with a damage number but no labeled formula (e.g. Garen R):
+    # keep the damage as an "untyped" feature so it isn't lost
+    for (cid, slot), dvs in data.items():
+        f = feats[cid]
+        if slot == "P" or any(f.get(f"{slot}_{c}_base_rmax") for c in ("magic", "physical", "true")):
+            continue
+        for name in ("basedamage", "damage", "totaldamage", "bonusdamage"):
+            if name in dvs and dvs[name]:
+                byrank = dvs[name]
+                f[f"{slot}_untyped_base_r1"] = byrank[min(byrank)]
+                f[f"{slot}_untyped_base_rmax"] = byrank[max(byrank)]
+                f["total_untyped_base_rmax"] = f.get("total_untyped_base_rmax", 0) + byrank[max(byrank)]
+                break
     for cid in feats:
         f = feats[cid]
         f["cc_hard_total"] = sum(v for k, v in f.items()
                                  if k.startswith("cc_") and k[3:-4] in HARD_CC)
         f["has_ability_numbers"] = float(cid in have_cd)
+    # every raw ability number (rank 1 and max rank) - used only to DETECT changes
+    # (e.g. Nasus passive lifesteal, Trundle W attack speed), not stored as features
+    raw = defaultdict(dict)
+    for (cid, slot), dvs in data.items():
+        for name, byrank in dvs.items():
+            if name.startswith("{"):
+                continue
+            raw[cid][f"data_{slot}_{name}_r1"] = byrank[min(byrank)]
+            raw[cid][f"data_{slot}_{name}_rmax"] = byrank[max(byrank)]
+    RAW_DATA[patch] = {cid: v for cid, v in raw.items() if cid in keys}
     return {cid: f for cid, f in feats.items() if cid in keys}, keys
 
 
@@ -270,6 +296,10 @@ def changes(prev, cur):
             yield eid, "_removed", 1.0, None
             continue
         for feat in sorted(set(a) | set(b)):
+            if feat.startswith(NOT_BALANCE):
+                continue
+            if feat.startswith("data_") and (feat not in a or feat not in b):
+                continue  # a raw value appearing/disappearing is usually a rename
             o, n = a.get(feat, 0.0), b.get(feat, 0.0)
             # ignore storage rounding (e.g. 3.1 in Data Dragon vs 3.0999999 in the
             # game files): only count changes bigger than one part in a million
@@ -305,7 +335,10 @@ def build(con):
         if prev_c is not None:
             rows = []
             skip_cd = (patch in have_cd) != (prev_patch in have_cd)  # avoid fake "changes"
-            for entity, prev, cur in (("champion", prev_c, cf), ("item", prev_i, itf)):
+            merge = lambda f, raw: {c: {**v, **raw.get(c, {})} for c, v in f.items()}
+            prev_all = merge(prev_c, RAW_DATA.get(prev_patch, {}))
+            cur_all = merge(cf, RAW_DATA.get(patch, {}))
+            for entity, prev, cur in (("champion", prev_all, cur_all), ("item", prev_i, itf)):
                 for eid, feat, o, n in changes(prev, cur):
                     if skip_cd and entity == "champion" and _is_cd_feature(feat):
                         continue
