@@ -38,6 +38,7 @@ import subprocess
 import sys
 import threading
 import time
+import collections
 from collections import deque
 from datetime import datetime, timezone
 
@@ -67,6 +68,7 @@ DEFAULT_CONFIG = {
     "min_game_seconds": 300,
     "reseed_players_days": 3,
     "new_patch_check_hours": 3,
+    "health_report_minutes": 15,
     "db": "lol_data.db",
     "raw_dir": "raw_matches",
     "key_file": "riot_key.txt",
@@ -338,11 +340,53 @@ class RegionWorker(threading.Thread):
         self.api_regional = RiotAPI(**kw)
         self.n_regions = len(cfg["regions"])
         self.recent = deque()          # timestamps of stored matches (rate)
+        self.stored_total = 0
+        self.last_report = (time.time(), 0, collections.Counter())
         self.exhausted = {}            # (patch, stage, bucket) -> time we ran out of players
         self.no_window = {}            # patch -> time we failed to date it
 
     def say(self, msg):
         log.info(f"{self.tag} {msg}")
+
+    def health_report(self):
+        """Explain where requests and time went since the last report."""
+        now = time.time()
+        stats = self.api_platform.stats + self.api_regional.stats
+        t0, stored0, stats0 = self.last_report
+        self.last_report = (now, self.stored_total, collections.Counter(stats))
+        d = collections.Counter(stats)
+        d.subtract(stats0)
+        span = max(now - t0, 1)
+        games = self.stored_total - stored0
+        req = d["requests"]
+        per_game = f"{req / games:.1f} requests/game" if games else "no games saved"
+        empty = d["empty"] / req if req else 0
+        n429 = sum(v for k, v in d.items() if k.startswith("429_"))
+        wait_lim = d["wait_limit_s"]
+        parts = [f"last {span / 60:.0f} min: {req:,} requests -> {games:,} games ({per_game})",
+                 f"empty replies {empty:.0%}",
+                 f"time: {min(wait_lim / span, 1):.0%} pacing to the rate limit, "
+                 f"{min(d['request_s'] / span, 1):.0%} waiting for Riot's replies"]
+        if n429:
+            parts.append(f"Riot 429s: {n429} ({d['wait_429_s']:.0f}s waited)")
+        if d["wait_key_s"]:
+            parts.append(f"waiting for a new API key {d['wait_key_s'] / 60:.0f} min")
+        if d["forbidden"]:
+            parts.append(f"endpoints refused for this key: {d['forbidden']}")
+        if d["network_errors"] or d["server_errors"]:
+            parts.append(f"network/server errors: {d['network_errors'] + d['server_errors']}")
+        self.say("HEALTH " + " | ".join(parts))
+        if req and empty > 0.5:
+            self.say("HEALTH hint: most replies are empty - players had few games in this "
+                     "patch window (common for old patches). More players help: raise "
+                     "ladder_pages_per_division.")
+        pacing = min(wait_lim / span, 1)
+        busy = (wait_lim + d["request_s"] + d["wait_429_s"] + d["wait_key_s"]) / span
+        if pacing > 0.8:
+            self.say("HEALTH ok: running at the full speed this API key allows")
+        elif busy < 0.5:
+            self.say("HEALTH hint: the collector was idle for much of this time (not "
+                     "requesting or waiting on Riot) - check the lines above for why.")
 
     def rate_per_hour(self):
         now = time.time()
@@ -510,6 +554,7 @@ class RegionWorker(threading.Thread):
                                  (mid, patch, int(time.time()), gz(m), gz(tl) if tl else None))
                 self.raw.commit()
                 stored += 1
+                self.stored_total += 1
                 self.recent.append(time.time())
                 if stored >= target:
                     break
@@ -688,8 +733,10 @@ def main(argv=None):
                 if newest and newest not in known:
                     log.info(f"New patch {newest} found - fetching its balance data")
                     update_balance(cfg, 3)
-            if time.time() - last_summary > 900:
+            if time.time() - last_summary > cfg["health_report_minutes"] * 60:
                 last_summary = time.time()
+                for w in workers:
+                    w.health_report()
                 total = sum(w.rate_per_hour() for w in workers)
                 log.info(f"== overall speed {total:,.0f} matches/hr "
                          f"({', '.join(f'{w.region} {w.rate_per_hour():,.0f}' for w in workers)})"

@@ -40,6 +40,7 @@ import argparse
 import collections
 import os
 import random
+import re
 import sqlite3
 import sys
 import time
@@ -285,7 +286,11 @@ class RiotAPI:
         self.host = host_template
         self.limits = list(limits or self.LIMITS)
         self.calls = collections.deque()
+        self.method_limits = {}   # endpoint -> [(n, window)], from X-Method-Rate-Limit
+        self.method_calls = collections.defaultdict(collections.deque)
+        self.forbidden = {}       # endpoint -> time it was refused (retried after 1h)
         self.n_requests = 0
+        self.stats = collections.Counter()  # diagnostics, read by the collector
         self.status_route = status_route
         self.log = log
         self.stop_event = stop_event
@@ -310,35 +315,60 @@ class RiotAPI:
                 return
             time.sleep(min(left, 1.0))
 
-    def _wait_for_slot(self):
+    @staticmethod
+    def endpoint(path):
+        """Name of the API method a path belongs to (Riot limits each separately)."""
+        for pattern, name in _ENDPOINTS:
+            if pattern.search(path):
+                return name
+        return path
+
+    @staticmethod
+    def _needed_wait(calls, limits, now):
+        longest = max(w for _, w in limits)
+        while calls and now - calls[0] > longest:
+            calls.popleft()
+        wait = 0.0
+        for n, window in limits:
+            recent = [t for t in calls if now - t < window]
+            if len(recent) >= n:
+                wait = max(wait, window - (now - recent[-n]) + 0.05)
+        return wait
+
+    def _wait_for_slot(self, method=None):
         while True:
             now = time.monotonic()
-            longest = max(w for _, w in self.limits)
-            while self.calls and now - self.calls[0] > longest:
-                self.calls.popleft()
-            wait = 0.0
-            for n, window in self.limits:
-                recent = [t for t in self.calls if now - t < window]
-                if len(recent) >= n:
-                    wait = max(wait, window - (now - recent[-n]) + 0.05)
+            wait = self._needed_wait(self.calls, self.limits, now)
+            if method in self.method_limits:
+                wait = max(wait, self._needed_wait(self.method_calls[method],
+                                                   self.method_limits[method], now))
             if wait <= 0:
                 self.calls.append(now)
+                if method in self.method_limits:
+                    self.method_calls[method].append(now)
                 return
+            self.stats["wait_limit_s"] += wait
             self._sleep(wait)
 
-    def _adopt_header_limits(self, headers):
-        raw = headers.get("X-App-Rate-Limit")
-        if not raw:
-            return
+    @staticmethod
+    def _parse_limits(raw):
         try:
-            lim = sorted((int(n), float(w)) for n, w in
-                         (part.split(":") for part in raw.split(",")))
-        except ValueError:
-            return
+            return sorted((int(n), float(w)) for n, w in
+                          (part.split(":") for part in raw.split(",")))
+        except (ValueError, AttributeError):
+            return None
+
+    def _adopt_header_limits(self, headers, method):
+        lim = self._parse_limits(headers.get("X-App-Rate-Limit"))
         if lim and lim != sorted(self.limits):
             self.limits = lim
-            self.log("    rate limits from Riot: " +
+            self.log("    rate limits from Riot for this key: " +
                      ", ".join(f"{n} per {w:g}s" for n, w in lim))
+        mlim = self._parse_limits(headers.get("X-Method-Rate-Limit"))
+        if mlim and mlim != self.method_limits.get(method):
+            self.method_limits[method] = mlim
+            if self.calls:  # count this call in the method window too
+                self.method_calls[method].append(self.calls[-1])
 
     def _key_is_valid(self):
         """Distinguish 'bad key' from 'this endpoint is forbidden'."""
@@ -359,6 +389,7 @@ class RiotAPI:
         self.log(f"!!! API key rejected (expired?). Paste a new key into "
                  f"{os.path.abspath(self.key_file)} - collection resumes automatically.")
         while True:
+            self.stats["wait_key_s"] += 20
             self._sleep(20)
             k = self._read_key_file()
             if k and k != rejected:
@@ -370,6 +401,9 @@ class RiotAPI:
     # -- main call --------------------------------------------------------- #
     def get(self, route, path, params=None, retries=5):
         url = self.host.format(route=route) + path
+        method = self.endpoint(path)
+        if time.time() - self.forbidden.get(method, 0) < 3600:
+            return None
         attempt = 0
         while attempt < retries:
             if self.key_file:  # pick up a key replaced while running
@@ -377,36 +411,68 @@ class RiotAPI:
                 if k and k != self.key:
                     self.key = k
                     self.s.headers["X-Riot-Token"] = k
-            self._wait_for_slot()
+                    self.forbidden.clear()
+            self._wait_for_slot(method)
+            t_req = time.monotonic()
             try:
                 r = self.s.get(url, params=params, timeout=30)
             except requests.RequestException as e:
+                self.stats["request_s"] += time.monotonic() - t_req
                 self.log(f"    network error ({e.__class__.__name__}), retrying")
+                self.stats["network_errors"] += 1
                 attempt += 1
                 self._sleep(2 + attempt * 3)
                 continue
+            self.stats["request_s"] += time.monotonic() - t_req
             self.n_requests += 1
-            self._adopt_header_limits(r.headers)
+            self.stats["requests"] += 1
+            self._adopt_header_limits(r.headers, method)
             if r.status_code == 200:
-                return r.json()
+                data = r.json()
+                self.stats["empty" if data in ([], {}, None) else "ok"] += 1
+                return data
             if r.status_code == 429:
                 wait = int(r.headers.get("Retry-After", 10))
-                self.log(f"    rate limited by Riot, waiting {wait}s")
+                kind = r.headers.get("X-Rate-Limit-Type", "unknown")
+                self.stats[f"429_{kind}"] += 1
+                self.stats["wait_429_s"] += wait
+                self.log(f"    rate limited by Riot ({kind} limit on {method}), waiting {wait}s")
                 self._sleep(wait)
                 continue
             if r.status_code in (500, 502, 503, 504):
+                self.stats["server_errors"] += 1
                 attempt += 1
                 self._sleep(2 + attempt * 3)
                 continue
             if r.status_code in (400, 404):
+                self.stats["empty"] += 1
                 return None
             if r.status_code in (401, 403):
                 if self.key_file and self._key_is_valid():
-                    return None  # key fine, this endpoint just isn't allowed
+                    # the key works, but may not use this endpoint
+                    self.forbidden[method] = time.time()
+                    self.stats["forbidden"] += 1
+                    self.log(f"!!! This API key is not allowed to use {method} "
+                             f"(HTTP {r.status_code}). Check which APIs your product has "
+                             f"access to at developer.riotgames.com. Skipping it for now.")
+                    return None
                 self._wait_for_new_key()
                 continue
             attempt += 1
         return None
+
+
+_ENDPOINTS = [
+    (re.compile(r"/lol/match/v5/matches/by-puuid/[^/]+/ids"), "match-v5 match ids"),
+    (re.compile(r"/lol/match/v5/matches/[^/]+/timeline"), "match-v5 timeline"),
+    (re.compile(r"/lol/match/v5/matches/[^/]+$"), "match-v5 match"),
+    (re.compile(r"/lol/league/v4/entries/"), "league-v4 entries"),
+    (re.compile(r"/lol/league/v4/challengerleagues/"), "league-v4 challenger"),
+    (re.compile(r"/lol/league/v4/grandmasterleagues/"), "league-v4 grandmaster"),
+    (re.compile(r"/lol/league/v4/masterleagues/"), "league-v4 master"),
+    (re.compile(r"/lol/summoner/v4/"), "summoner-v4"),
+    (re.compile(r"/lol/status/v4/"), "lol-status-v4"),
+]
 
 
 # --------------------------------------------------------------------------- #
