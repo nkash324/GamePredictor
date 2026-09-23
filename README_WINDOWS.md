@@ -29,6 +29,17 @@
 - **Stop:** press Ctrl+C in the collector window, or close it. Nothing is lost, and the next
   start continues where it stopped.
 
+## Starting over / changing API keys
+
+Stop the collector first (Ctrl+C), then in PowerShell in the project folder:
+
+| Command | What it does |
+|---|---|
+| `python collector.py reset-players` | Clears stored players, patch dates and search progress. **Keeps all collected games.** Use this if you ever switch to a key from a different app. Riot encrypts player IDs separately for every app, so old IDs stop working. (The collector also detects this and does it automatically.) |
+| `python collector.py reset-all` | Deletes **all** collected games, timelines and raw backups, and starts from zero. Balance data is kept. Asks you to type `yes` first. |
+
+Then start `run_collector.bat` again.
+
 ## When the development key expires (every 24 hours)
 
 The window shows `!!! API key rejected`. Get a new key at https://developer.riotgames.com,

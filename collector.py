@@ -56,13 +56,9 @@ from fetch_match_data import (REGIONS, PatchDater, RiotAPI, StopRequested, bucke
 CONFIG_FILE = "collector_config.json"
 DEFAULT_CONFIG = {
     "regions": ["na", "euw", "kr"],
-    # rank mix for the live patch: players' ranks are read from the ladder during
-    # the patch, so these games get exact rank labels
-    "rank_mix_current": {"MASTER+": 0.25, "DIAMOND": 0.25, "EMERALD": 0.25,
-                         "PLATINUM": 0.15, "GOLD": 0.10},
-    # rank mix for past patches: only rank-stable high-elo players; labelled as an
-    # estimate because Riot has no historical ranks
-    "rank_mix_backfill": {"MASTER+": 0.5, "DIAMOND": 0.5},
+    # rank mix used for every patch (the same everywhere, so patches are comparable).
+    # High-elo players are the most rank-stable, which keeps older patches reliable.
+    "rank_mix": {"MASTER+": 0.5, "DIAMOND": 0.5},
     "ladder_pages_per_division": 5,
     "patches_back": 25,
     "target_per_patch": 40000,
@@ -152,9 +148,11 @@ class PlayersFromOtherKey(Exception):
 # --------------------------------------------------------------------------- #
 def load_config():
     cfg = dict(DEFAULT_CONFIG)
+    user_cfg = {}
     if os.path.exists(CONFIG_FILE):
         with open(CONFIG_FILE, encoding="utf-8") as f:
-            cfg.update(json.load(f))
+            user_cfg = json.load(f)
+        cfg.update(user_cfg)
     else:
         with open(CONFIG_FILE, "w", encoding="utf-8") as f:
             json.dump(DEFAULT_CONFIG, f, indent=2)
@@ -167,23 +165,23 @@ def load_config():
               "'americas'), so they share one rate limit and won't add speed.")
     cfg["stages"] = sorted(set(min(s, cfg["target_per_patch"]) for s in cfg["stages"])
                            | {cfg["target_per_patch"]})
+    # older config files had separate live/past mixes: use the past-patch one
+    if "rank_mix" not in user_cfg and "rank_mix_backfill" in user_cfg:
+        cfg["rank_mix"] = user_cfg["rank_mix_backfill"]
     valid = {"MASTER+", "DIAMOND", "EMERALD", "PLATINUM", "GOLD", "SILVER", "BRONZE", "IRON"}
-    for k in ("rank_mix_current", "rank_mix_backfill"):
-        mix = {b.upper(): float(v) for b, v in cfg[k].items() if float(v) > 0}
-        if not mix or set(mix) - valid:
-            sys.exit(f"{k} in {CONFIG_FILE} must use: {sorted(valid)}")
-        total = sum(mix.values())
-        cfg[k] = {b: v / total for b, v in mix.items()}  # shares always add up to 1
-    buckets = set(cfg["rank_mix_current"]) | set(cfg["rank_mix_backfill"])
+    mix = {b.upper(): float(v) for b, v in cfg["rank_mix"].items() if float(v) > 0}
+    if not mix or set(mix) - valid:
+        sys.exit(f"rank_mix in {CONFIG_FILE} must use: {sorted(valid)}")
+    total = sum(mix.values())
+    cfg["rank_mix"] = {b: v / total for b, v in mix.items()}  # shares always add up to 1
     order = ["MASTER+", "DIAMOND", "EMERALD", "PLATINUM", "GOLD", "SILVER", "BRONZE", "IRON"]
-    cfg["buckets"] = [b for b in order if b in buckets]
+    cfg["buckets"] = [b for b in order if b in cfg["rank_mix"]]
     cfg["tiers"] = [t for b in cfg["buckets"] for t in bucket_tiers(b)]
     return cfg
 
 
-def bucket_targets(cfg, stage, is_open, n_regions):
-    mix = cfg["rank_mix_current"] if is_open else cfg["rank_mix_backfill"]
-    return {b: math.ceil(stage * share / n_regions) for b, share in mix.items()}
+def bucket_targets(cfg, stage, n_regions):
+    return {b: math.ceil(stage * share / n_regions) for b, share in cfg["rank_mix"].items()}
 
 
 def setup_logging(path):
@@ -546,14 +544,14 @@ class RegionWorker(threading.Thread):
                     self.no_window[patch] = time.time()
                     continue
                 start, end, is_open = w
-                targets = bucket_targets(self.cfg, stage, is_open, self.n_regions)
+                targets = bucket_targets(self.cfg, stage, self.n_regions)
                 for bucket, target in targets.items():
                     if now - self.exhausted.get((patch, s_idx, bucket), 0) < 12 * 3600:
                         continue
                     have = self.count(patch, bucket)
                     if have >= target:
                         continue
-                    mode = "live patch, exact ranks" if is_open else "past patch, estimated ranks"
+                    mode = "live patch" if is_open else "past patch"
                     self.say(f"{patch} {bucket}: stage {s_idx + 1}/{len(self.cfg['stages'])}, "
                              f"{have}/{target} matches ({mode}; live {fmt(start)} to {fmt(end)})")
                     if self.collect(patch, start, end, bucket, target, s_idx, is_open):
@@ -573,9 +571,6 @@ class RegionWorker(threading.Thread):
             LEFT JOIN crawl_log c ON c.puuid = p.puuid AND c.crawl_key = ?
             WHERE p.platform = ? AND p.tier IN ({",".join("?" * len(tiers))})"""
         args = [crawl_key, self.platform, *tiers]
-        if is_open:  # exact labels: only players whose rank was read recently
-            sql += " AND p.seeded_at >= ?"
-            args.append(time.time() - (cfg["reseed_players_days"] + 1) * 86400)
         fresh = [r[:5] for r in con.execute(sql, args) if r[5] is None]
         random.shuffle(fresh)
         if not fresh:
@@ -703,9 +698,8 @@ def status(cfg):
 
     print(f"\nTarget: {cfg['target_per_patch']:,} matches per patch across "
           f"{', '.join(plats)}, last {len(patches)} patches")
-    print("Rank mix  live patch: " + ", ".join(f"{b} {v:.0%}" for b, v in
-          cfg["rank_mix_current"].items()) + "  |  past patches: " +
-          ", ".join(f"{b} {v:.0%}" for b, v in cfg["rank_mix_backfill"].items()) + "\n")
+    print("Rank mix (all patches): " + ", ".join(f"{b} {v:.0%}" for b, v in
+          cfg["rank_mix"].items()) + "\n")
     head = (f"{'patch':>7} {'type':<9}" + "".join(f"{p:>9}" for p in plats) +
             f"{'total':>9}{'tl':>8}  " + " ".join(f"{short[b]:>11}" for b in buckets) +
             "  progress")
@@ -715,7 +709,7 @@ def status(cfg):
     for pa in patches:
         live = True in windows.get(pa, set())
         kind = "live" if live else ("past" if pa in windows else "not live")
-        targets = bucket_targets(cfg, cfg["target_per_patch"], live, n_reg)
+        targets = bucket_targets(cfg, cfg["target_per_patch"], n_reg)
         have = sum(min(counts.get((p, pa, b), 0), t) for p in plats for b, t in targets.items())
         need = sum(targets.values()) * n_reg
         if kind != "not live":
@@ -854,9 +848,8 @@ def main(argv=None):
         if n:
             log.info(f"Upgraded patch dating: recomputing {n} saved patch windows")
 
-    log.info("Rank mix, live patch: " + ", ".join(f"{b} {v:.0%}" for b, v in
-             cfg["rank_mix_current"].items()) + " | past patches: " +
-             ", ".join(f"{b} {v:.0%}" for b, v in cfg["rank_mix_backfill"].items()))
+    log.info("Rank mix (all patches): " + ", ".join(f"{b} {v:.0%}" for b, v in
+             cfg["rank_mix"].items()))
     log.info(f"Collector starting: regions {', '.join(cfg['regions'])}, "
              f"{cfg['target_per_patch']:,} matches/patch over the last {cfg['patches_back']} "
              f"patches, stages {cfg['stages']}, timelines for {cfg['timeline_fraction']:.0%}")
