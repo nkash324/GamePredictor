@@ -125,8 +125,8 @@ def champion_features(con, patch, version):
         cd_vals = [d[stat] for d in cd_stats.values() if d.get(stat)]
         if dd_vals and not any(dd_vals) and len(cd_vals) > len(dd_vals) / 2:
             for cid, d in cd_stats.items():
-                if stat in d and cid in stats:
-                    stats[cid][stat] = d[stat]
+                if d.get(stat) is not None and cid in stats:
+                    stats[cid][stat] = round(d[stat], 4)  # game files store 3.1 as 3.0999999
             FIXES.append((patch, stat))
     for cid, s in stats.items():
         f = feats[cid]
@@ -271,7 +271,9 @@ def changes(prev, cur):
             continue
         for feat in sorted(set(a) | set(b)):
             o, n = a.get(feat, 0.0), b.get(feat, 0.0)
-            if abs((o or 0) - (n or 0)) > 1e-9:
+            # ignore storage rounding (e.g. 3.1 in Data Dragon vs 3.0999999 in the
+            # game files): only count changes bigger than one part in a million
+            if abs((o or 0) - (n or 0)) > 1e-6 * max(1.0, abs(o or 0), abs(n or 0)):
                 yield eid, feat, o, n
 
 
