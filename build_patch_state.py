@@ -359,6 +359,25 @@ def report(con, patch):
         print(f"     {feat:<34} {fmt(o):>10} -> {fmt(n):<10}{p}")
 
 
+def summary(con, patch):
+    """Which features changed in a patch, and for how many champions/items."""
+    rows = con.execute("""
+        SELECT entity, feature, COUNT(DISTINCT entity_id), AVG(pct), MIN(old), MAX(old),
+               MIN(new), MAX(new)
+        FROM patch_changes WHERE patch = ? GROUP BY entity, feature
+        ORDER BY entity, COUNT(DISTINCT entity_id) DESC""", (patch,)).fetchall()
+    if not rows:
+        sys.exit(f"No changes stored for patch {patch}.")
+    print(f"Features changed in {patch} (entity, feature, how many changed, average change):")
+    for entity, feat, n, pct, o1, o2, n1, n2 in rows[:40]:
+        p = f"{pct:+.0%}" if pct is not None else "  -"
+        print(f"  {entity:<8} {feat:<36} {n:>4}   avg {p:>6}   old {o1:g}..{o2:g}  new {n1:g}..{n2:g}"
+              if o1 is not None and n1 is not None else f"  {entity:<8} {feat:<36} {n:>4}")
+    per = con.execute("SELECT entity_id, COUNT(*) FROM patch_changes WHERE patch = ? AND "
+                      "entity = 'champion' GROUP BY 1 ORDER BY 2 DESC LIMIT 10", (patch,)).fetchall()
+    print("\nChampions with the most changed features: " + ", ".join(f"{c} ({n})" for c, n in per))
+
+
 def export_csv(con):
     os.makedirs("csv", exist_ok=True)
     rows = con.execute("SELECT patch, champion_id, feature, value FROM patch_champion_features")
@@ -379,12 +398,17 @@ def main(argv=None):
     ap = argparse.ArgumentParser(description="Build per-patch champion/item features and changes.")
     ap.add_argument("--db", default="lol_data.db")
     ap.add_argument("--report", default=None, help="print the changes for one patch, e.g. 16.18")
+    ap.add_argument("--summary", default=None,
+                    help="which features changed in a patch, and for how many champions")
     ap.add_argument("--export-csv", action="store_true")
     args = ap.parse_args(argv)
     con = sqlite3.connect(args.db, timeout=120)
     con.execute("PRAGMA journal_mode=WAL")
     if args.report:
         report(con, args.report)
+        return
+    if args.summary:
+        summary(con, args.summary)
         return
     build(con)
     if args.export_csv:
