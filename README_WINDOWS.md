@@ -79,8 +79,7 @@ Every 15 minutes each region prints a `HEALTH` line, for example:
 | Setting | Default | Meaning |
 |---|---|---|
 | `regions` | `["na","euw","kr"]` | Regions to collect. Each extra *routing group* adds speed: americas (na, br, lan, las), europe (euw, eune, tr, ru, me), asia (kr, jp), sea (oce, sg, tw, vn). Adding `"vn"` gives about +33% speed |
-| `rank_mix_current` | M+ 25%, Diamond 25%, Emerald 25%, Plat 15%, Gold 10% | Rank mix for the **live** patch. Ranks are read from the ladder during the patch, so these games get exact rank labels |
-| `rank_mix_backfill` | M+ 50%, Diamond 50% | Rank mix for **past** patches. Only high-elo players (the most rank-stable), labelled as an estimate since Riot has no historical ranks |
+| `rank_mix` | M+ 50%, Diamond 50% | Rank mix used for **every** patch, so all patches are comparable. High-elo players are the most rank-stable, which keeps older patches reliable |
 | `ladder_pages_per_division` | 5 | Players loaded per division below Master (~205 per page, 4 divisions per tier) |
 | `reseed_players_days` | 3 | How often the ladder is reloaded, which keeps players' ranks current |
 | `patches_back` | 25 | How many past patches to cover |
@@ -95,8 +94,9 @@ Stop the collector before editing the settings, then start it again.
 
 - `lol_data.db`: everything the model uses (balance data, matches, players, objectives,
   runes, timeline stats, item purchase order, skill order, plus summary views).
-  Every match has a rank label: `rank_bucket` (MASTER+, DIAMOND, ...), and `rank_source`
-  is `ladder` (rank read during that patch) or `estimate` (past patch).
+  Every match has a rank label: `rank_bucket` (MASTER+ or DIAMOND), and `rank_source`
+  is `ladder` (rank read while that patch was live) or `estimate` (past patch). This is
+  information only: every patch is collected the same way.
 - `raw_matches\`: the full original match downloads, compressed, one file per region, so
   nothing ever needs downloading again.
 - `collector.log`: the activity log.

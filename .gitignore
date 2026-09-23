@@ -16,3 +16,6 @@ __pycache__/
 *.pyc
 .DS_Store
 Thumbs.db
+
+# CommunityDragon download cache
+cdragon_cache/
