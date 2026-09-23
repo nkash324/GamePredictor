@@ -90,12 +90,42 @@ STAT_NAMES = {0: "ap", 1: "armor", 2: "ad", 3: "attackspeed", 5: "mr", 6: "moves
               7: "crit", 11: "hp", 12: "currenthp", 13: "missinghp"}
 FORMULA_NAMES = {0: "", 1: "_base", 2: "_bonus"}
 
-# game-file base stats -> Data Dragon stat names (only fields on the same scale)
-CD_STATS = {"baseHP": "hp", "hpPerLevel": "hpperlevel", "baseDamage": "attackdamage",
-            "damagePerLevel": "attackdamageperlevel", "baseArmor": "armor",
-            "armorPerLevel": "armorperlevel", "baseSpellBlock": "spellblock",
-            "spellBlockPerLevel": "spellblockperlevel", "baseMoveSpeed": "movespeed",
-            "attackRange": "attackrange", "attackSpeed": "attackspeed"}
+# game-file base stats -> Data Dragon stat names (only fields on the same scale).
+# Older files store plain numbers (baseDamage: 53); newer ones (16.5+) wrap them
+# (baseDamageModifiable: {baseValue: 53}) and rename magic resist (baseMR, mrPerLevel).
+CD_STATS = {
+    "hp": ["baseHP", "baseHPModifiable"],
+    "hpperlevel": ["hpPerLevel", "hpPerLevelModifiable"],
+    "attackdamage": ["baseDamage", "baseDamageModifiable"],
+    "attackdamageperlevel": ["damagePerLevel", "damagePerLevelModifiable"],
+    "armor": ["baseArmor", "baseArmorModifiable"],
+    "armorperlevel": ["armorPerLevel", "armorPerLevelModifiable"],
+    "spellblock": ["baseSpellBlock", "baseMR", "baseSpellBlockModifiable", "baseMRModifiable"],
+    "spellblockperlevel": ["spellBlockPerLevel", "mrPerLevel", "spellBlockPerLevelModifiable",
+                           "mrPerLevelModifiable"],
+    "movespeed": ["baseMoveSpeed", "baseMoveSpeedModifiable"],
+    "attackrange": ["attackRange", "attackRangeModifiable"],
+    "attackspeed": ["attackSpeed", "attackSpeedModifiable"],
+    "attackspeedperlevel": ["attackSpeedPerLevel", "attackSpeedPerLevelModifiable"],
+}
+
+
+def record_stat(record, names):
+    for n in names:
+        v = record.get(n)
+        if isinstance(v, dict):
+            v = v.get("baseValue")
+        if isinstance(v, (int, float)) and not isinstance(v, bool):
+            return float(v)
+    return None
+
+
+def field(d, *names, default=None):
+    """First present field among naming variants (Riot renames fields between patches)."""
+    for n in names:
+        if n in d:
+            return d[n]
+    return default
 
 TOOLTIP_TAGS = {"magicdamage": "magic", "physicaldamage": "physical", "truedamage": "true",
                 "healing": "heal", "shield": "shield"}
@@ -143,9 +173,11 @@ class SpellParser:
         self.n = n_ranks
         self.offset = offset
         self.dv = {}
-        for d in self.spell.get("mDataValues") or []:
-            name = str(d.get("mName", "")).lower()
-            vals = d.get("mValues") or []
+        for d in field(self.spell, "mDataValues", "DataValues", "dataValues", default=None) or []:
+            if not isinstance(d, dict):
+                continue
+            name = str(field(d, "mName", "name", default="")).lower()
+            vals = field(d, "mValues", "values", default=None) or []
             self.dv[name] = self._ranked(vals)
         self.calcs = {str(k).lower(): v for k, v in
                       (self.spell.get("mSpellCalculations") or {}).items()}
@@ -207,6 +239,8 @@ class SpellParser:
             return Lin(n, self._const(_num(p.get("mLevel1Value"))), complex_=True, level=True)
         if t == "GameCalculationPart" or "mGameCalculation" in p:
             return self.calc(str(p.get("mGameCalculation", "")).lower(), depth + 1)
+        if "mSpellCalculationKey" in p:  # reference to another formula (hashed type name)
+            return self.calc(str(p.get("mSpellCalculationKey", "")).lower(), depth + 1)
         return Lin(n, complex_=True)  # buff stacks, hashed types, ...
 
     def calc(self, name, depth=0):
@@ -258,7 +292,18 @@ def find_spells(doc, champion_id, dd_spell_ids):
         s = s or (by_name(names[i]) if i < len(names) else None)
         if s:
             out[slot] = s
-    passive = next((v for k, v in spells.items() if "passive" in k), None)
+    # the record names the real passive; otherwise guess from the object names
+    passive = None
+    ppath = str(record.get("mCharacterPassiveSpell") or "").lower()
+    if ppath:
+        passive = objects.get(ppath) if isinstance(objects.get(ppath), dict) else None
+    if not passive and record.get("passiveLuaName"):
+        passive = by_name(str(record["passiveLuaName"]))
+    if not passive:
+        cands = [(k, v) for k, v in spells.items() if "passive" in k]
+        with_numbers = [kv for kv in cands if field(kv[1]["mSpell"], "mDataValues", "DataValues")
+                        or kv[1]["mSpell"].get("mSpellCalculations")]
+        passive = (with_numbers or cands or [(None, None)])[0][1]
     if passive:
         out["P"] = passive
     return out, spells, record
@@ -321,8 +366,8 @@ def parse_champion(doc, champion_id, dd):
     """dd: {slot: {'id', 'max_rank', 'cooldown': [...], 'tooltip'}} from Data Dragon."""
     spells, all_spells, record = find_spells(doc, champion_id,
                                              {s: d.get("id") for s, d in dd.items()})
-    base_stats = [(stat, _num(record[k])) for k, stat in CD_STATS.items()
-                  if isinstance(record.get(k), (int, float))]
+    base_stats = [(stat, v) for stat, names in CD_STATS.items()
+                  if (v := record_stat(record, names)) is not None]
     dd_cds = {s: d.get("cooldown") for s, d in dd.items() if d.get("cooldown")}
     offset, cd_match, cd_checked = detect_offset(spells, dd_cds)
     if cd_match < cd_checked:
@@ -340,6 +385,12 @@ def parse_champion(doc, champion_id, dd):
             n = 1
         parser = SpellParser(sp.get("mSpell"), n, offset)
         cats = tooltip_categories((dd.get(slot) or {}).get("tooltip"))
+        for name in parser.calcs:  # untagged formulas: fall back to the name
+            if name not in cats:
+                if "heal" in name:
+                    cats[name] = "heal"
+                elif "shield" in name:
+                    cats[name] = "shield"
         for name, vals in parser.dv.items():
             for r, v in enumerate(vals, 1):
                 values.append((slot, "data", name, r, v))

@@ -220,7 +220,8 @@ def champion_features(con, patch, version):
                         f[key] = max(f.get(key, 0), v)
                     break
             if "slow" in name and any(w in name for w in ("percent", "amount", "mod", "pct")):
-                amt = v / 100 if v > 1 else v
+                amt = abs(v)                      # game files store slows as e.g. -0.65
+                amt = amt / 100 if amt > 1 else amt
                 if 0 < amt <= 1:
                     f["cc_slow_max"] = max(f.get("cc_slow_max", 0), amt)
     for cid in feats:
