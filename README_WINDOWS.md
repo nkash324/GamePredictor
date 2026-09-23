@@ -35,6 +35,24 @@ The window shows `!!! API key rejected`. Get a new key at https://developer.riot
 paste it into `riot_key.txt` (replacing the old one) and save. Collection resumes by itself
 within about 20 seconds, with no restart needed. A Personal key removes this step.
 
+## If collection seems slow: read the HEALTH lines
+
+Every 15 minutes each region prints a `HEALTH` line, for example:
+
+```
+[NA] HEALTH last 15 min: 1,480 requests -> 890 games (1.7 requests/game) | empty replies 6% | time: 95% pacing to the rate limit, 4% waiting for Riot's replies
+[NA] HEALTH ok: running at the full speed this API key allows
+```
+
+| What you see | What it means |
+|---|---|
+| `HEALTH ok` | Working at the maximum speed your key allows. With a Personal or development key that's ~2,000 games/hr per region |
+| `!!! API key rejected` / `waiting for a new API key` | Key expired or wrong: paste a valid key into `riot_key.txt` |
+| `!!! This API key is not allowed to use ...` | Your product key doesn't have access to that API: check your product's APIs on the developer portal |
+| `Riot 429s: ...` | Riot is blocking requests for going too fast: usually another program or a second collector window is using the same key |
+| `empty replies` above 50% | Most players had no games in that patch window (common for old patches): raise `ladder_pages_per_division` |
+| `idle for much of this time` | Nothing left to collect, or something is stuck: read the lines above it |
+
 ## Keeping it running
 
 - While the collector runs it **stops Windows from sleeping** (the screen can still turn

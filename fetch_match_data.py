@@ -292,6 +292,8 @@ class RiotAPI:
         self.n_requests = 0
         self.stats = collections.Counter()  # diagnostics, read by the collector
         self.last_ok_url = None   # a URL that worked with this key (used to test the key)
+        self.last_error = None    # (status, message, endpoint) of the last failed call
+        self._logged_400 = collections.Counter()
         self.status_route = status_route
         self.log = log
         self.stop_event = stop_event
@@ -430,6 +432,7 @@ class RiotAPI:
     def get(self, route, path, params=None, retries=5):
         url = self.host.format(route=route) + path
         method = self.endpoint(path)
+        self.last_error = None
         if time.time() - self.forbidden.get(method, 0) < 3600:
             return None
         attempt = 0
@@ -473,8 +476,19 @@ class RiotAPI:
                 attempt += 1
                 self._sleep(2 + attempt * 3)
                 continue
-            if r.status_code in (400, 404):
+            if r.status_code == 404:
                 self.stats["empty"] += 1
+                return None
+            if r.status_code == 400:
+                try:
+                    msg = (r.json().get("status") or {}).get("message", "")
+                except ValueError:
+                    msg = r.text[:200]
+                self.stats["bad_request"] += 1
+                self.last_error = (400, msg, method)
+                if self._logged_400[method] < 3:
+                    self._logged_400[method] += 1
+                    self.log(f"!!! Riot rejected a {method} request as invalid (HTTP 400): {msg}")
                 return None
             if r.status_code in (401, 403):
                 if self.key_file and self._key_is_valid():
@@ -625,6 +639,7 @@ class PatchDater:
             "SELECT ts, patch FROM patch_probes WHERE platform = ?", (platform,)).fetchall())
         self.players = [r[0] for r in con.execute(
             "SELECT puuid FROM players WHERE platform = ?", (platform,))]
+        self.bad_ids = 0
 
     def _record(self, ts, patch):
         self.obs[ts] = patch
@@ -638,6 +653,11 @@ class PatchDater:
             ids = self.api.get(self.regional, f"/lol/match/v5/matches/by-puuid/{puuid}/ids",
                                params={"queue": QUEUE_ID, "startTime": int(t),
                                        "endTime": int(t_end), "count": 1})
+            err = self.api.last_error
+            if err and err[0] == 400:
+                self.bad_ids += 1       # player ID Riot can't read (other API key?)
+            elif ids is not None:
+                self.bad_ids = 0
             if not ids:
                 continue
             m = self.api.get(self.regional, f"/lol/match/v5/matches/{ids[0]}")

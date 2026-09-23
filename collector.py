@@ -17,8 +17,12 @@ Start it and leave it running. It:
   * can be stopped (Ctrl+C) and restarted at any time without losing anything
 
 Commands:
-  python collector.py            start collecting
-  python collector.py status     show progress per region and patch, and time left
+  python collector.py                 start collecting
+  python collector.py status          show progress per region and patch, and time left
+  python collector.py reset-players   clear stored players (needed after switching to an
+                                      API key from a different app), keep collected games
+  python collector.py reset-all       delete all collected games and start over
+                                      (balance data is kept)
 
 Settings live in collector_config.json (created on first run).
 Needs: fetch_balance_data.py and fetch_match_data.py in the same folder.
@@ -136,6 +140,11 @@ CREATE INDEX IF NOT EXISTS ix_raw_time ON raw(collected_at);
 """
 
 log = logging.getLogger("collector")
+
+
+class PlayersFromOtherKey(Exception):
+    """Stored player IDs don't work with the current API key (Riot encrypts player
+    IDs separately for every key/app), so the player list must be reloaded."""
 
 
 # --------------------------------------------------------------------------- #
@@ -344,6 +353,7 @@ class RegionWorker(threading.Thread):
         self.last_report = (time.time(), 0, collections.Counter())
         self.exhausted = {}            # (patch, stage, bucket) -> time we ran out of players
         self.no_window = {}            # patch -> time we failed to date it
+        self.bad_id_streak = 0         # consecutive player lookups Riot rejected
 
     def say(self, msg):
         log.info(f"{self.tag} {msg}")
@@ -361,6 +371,7 @@ class RegionWorker(threading.Thread):
         req = d["requests"]
         per_game = f"{req / games:.1f} requests/game" if games else "no games saved"
         empty = d["empty"] / req if req else 0
+        bad = d["bad_request"] / req if req else 0
         n429 = sum(v for k, v in d.items() if k.startswith("429_"))
         wait_lim = d["wait_limit_s"]
         parts = [f"last {span / 60:.0f} min: {req:,} requests -> {games:,} games ({per_game})",
@@ -371,11 +382,16 @@ class RegionWorker(threading.Thread):
             parts.append(f"Riot 429s: {n429} ({d['wait_429_s']:.0f}s waited)")
         if d["wait_key_s"]:
             parts.append(f"waiting for a new API key {d['wait_key_s'] / 60:.0f} min")
+        if d["bad_request"]:
+            parts.append(f"requests rejected as invalid (400): {d['bad_request']}")
         if d["forbidden"]:
             parts.append(f"endpoints refused for this key: {d['forbidden']}")
         if d["network_errors"] or d["server_errors"]:
             parts.append(f"network/server errors: {d['network_errors'] + d['server_errors']}")
         self.say("HEALTH " + " | ".join(parts))
+        if req and bad > 0.3:
+            self.say("HEALTH hint: Riot is rejecting many requests as invalid - see the "
+                     "'!!! Riot rejected' lines above for Riot's reason.")
         if req and empty > 0.5:
             self.say("HEALTH hint: most replies are empty - players had few games in this "
                      "patch window (common for old patches). More players help: raise "
@@ -402,6 +418,9 @@ class RegionWorker(threading.Thread):
                 self.loop()
             except StopRequested:
                 break
+            except PlayersFromOtherKey:
+                self.purge_players()
+                continue
             except Exception:
                 log.exception(f"{self.tag} unexpected error; restarting worker in 60s")
                 if self.stop.wait(60):
@@ -434,6 +453,36 @@ class RegionWorker(threading.Thread):
                          "for the remaining patches) - checking again in 30 min")
                 if self.stop.wait(1800):
                     return
+
+    def purge_players(self):
+        """Throw away player IDs from another key and everything derived from them."""
+        con = self.con
+        n = con.execute("SELECT COUNT(*) FROM players WHERE platform = ?",
+                        (self.platform,)).fetchone()[0]
+        self.say(f"!!! Riot can't read the stored player IDs with the current API key "
+                 f"(player IDs are encrypted separately for every key). Reloading the "
+                 f"ladder with this key: removing {n:,} old player IDs and this region's "
+                 f"patch dates. Collected games are kept.")
+        con.execute("DELETE FROM players WHERE platform = ?", (self.platform,))
+        con.execute("DELETE FROM crawl_log WHERE crawl_key LIKE ?", (self.platform + ":%",))
+        con.execute("DELETE FROM patch_windows WHERE platform = ?", (self.platform,))
+        con.execute("DELETE FROM state WHERE key IN (?, ?)",
+                    (f"seeded:{self.platform}", f"seed_retry:{self.platform}"))
+        con.commit()
+        self.exhausted.clear()
+        self.no_window.clear()
+        self.bad_id_streak = 0
+
+    def check_player_id(self, api):
+        """Call after a by-puuid request; spots IDs that belong to another key."""
+        err = api.last_error
+        if err and err[0] == 400:
+            self.bad_id_streak += 1
+            if "decrypt" in err[1].lower() or self.bad_id_streak >= 25:
+                if self.bad_id_streak >= 5:
+                    raise PlayersFromOtherKey()
+        elif err is None:
+            self.bad_id_streak = 0
 
     def seed_if_needed(self):
         """(Re)load the ladder when it's due, or when players or ranks are missing."""
@@ -471,6 +520,8 @@ class RegionWorker(threading.Thread):
 
     def window(self, patch):
         w = self.dater.window(patch)
+        if self.dater.bad_ids >= 5:
+            raise PlayersFromOtherKey()
         if w is None:
             return None
         is_open = self.con.execute("SELECT is_open FROM patch_windows WHERE platform = ? AND "
@@ -547,6 +598,7 @@ class RegionWorker(threading.Thread):
             ids = self.api_regional.get(self.regional,
                                         f"/lol/match/v5/matches/by-puuid/{puuid}/ids",
                                         params=params) or []
+            self.check_player_id(self.api_regional)
             tried += 1
             empty_players += not ids
             for mid in ids:
@@ -708,6 +760,54 @@ def status(cfg):
 
 
 # --------------------------------------------------------------------------- #
+# Reset commands
+# --------------------------------------------------------------------------- #
+PLAYER_TABLES = ["players", "crawl_log", "patch_probes", "patch_windows", "state"]
+MATCH_TABLES = ["matches", "participants", "bans", "team_objectives", "participant_runes",
+                "timeline_frames", "item_events", "skill_order"]
+
+
+def reset(cfg, everything):
+    if not os.path.exists(cfg["db"]):
+        sys.exit("No database found - nothing to reset.")
+    con = sqlite3.connect(cfg["db"], timeout=5)
+    try:  # refuse while the collector is writing
+        con.execute("BEGIN EXCLUSIVE")
+        con.rollback()
+    except sqlite3.OperationalError:
+        sys.exit("The database is in use - stop the collector (Ctrl+C in its window) first.")
+    have = {r[0] for r in con.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+    n_games = con.execute("SELECT COUNT(*) FROM matches").fetchone()[0] if "matches" in have else 0
+    n_players = con.execute("SELECT COUNT(*) FROM players").fetchone()[0] if "players" in have else 0
+    if everything:
+        print(f"This deletes ALL collected match data: {n_games:,} games, their timelines and "
+              f"raw backups, and {n_players:,} stored players.\n"
+              f"Balance data (champion/item stats per patch) is kept.")
+        if input("Type yes to continue: ").strip().lower() != "yes":
+            sys.exit("Cancelled - nothing was deleted.")
+        tables = PLAYER_TABLES + MATCH_TABLES
+    else:
+        print(f"Clearing {n_players:,} stored players, patch dates and search progress. "
+              f"All {n_games:,} collected games are kept.")
+        tables = PLAYER_TABLES
+    for t in tables:
+        if t in have:
+            con.execute(f"DELETE FROM {t}")
+    con.commit()
+    if everything:
+        removed = 0
+        if os.path.isdir(cfg["raw_dir"]):
+            for f in os.listdir(cfg["raw_dir"]):
+                if f.startswith("matches_"):
+                    os.remove(os.path.join(cfg["raw_dir"], f))
+                    removed += 1
+        print(f"Removed {removed} raw backup file(s). Shrinking the database ...")
+        con.execute("VACUUM")
+    con.close()
+    print("Done. Start the collector again to reload the ladder with your current API key.")
+
+
+# --------------------------------------------------------------------------- #
 def main(argv=None):
     argv = sys.argv[1:] if argv is None else argv
     host_template = "https://{route}.api.riotgames.com"
@@ -723,9 +823,17 @@ def main(argv=None):
     if argv[:1] == ["status"]:
         status(cfg)
         return
+    if argv[:1] in (["reset-players"], ["reset-all"]):
+        reset(cfg, everything=argv[0] == "reset-all")
+        return
     if argv:
-        sys.exit(f"Unknown command {argv[0]!r}. Use:  python collector.py  or  "
-                 f"python collector.py status")
+        sys.exit(f"Unknown command {argv[0]!r}. Commands:\n"
+                 f"  python collector.py                 start collecting\n"
+                 f"  python collector.py status          show progress\n"
+                 f"  python collector.py reset-players   clear players (after an API key "
+                 f"change), keep games\n"
+                 f"  python collector.py reset-all       delete all collected games and "
+                 f"start over")
 
     setup_logging(cfg["log_file"])
     ensure_key(cfg)
