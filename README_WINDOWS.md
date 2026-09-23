@@ -108,6 +108,25 @@ python build_patch_state.py           # a few seconds: champion/item features + 
 - `fetch_ability_data.py --reparse` re-reads the downloaded files without downloading again
   (after a parser fix).
 
+## Training tables and baselines
+
+Needs a few extra libraries once: `pip install pandas numpy pyarrow`
+
+```
+python build_training_tables.py   # seconds: games + champion-patch tables into training/
+python baselines.py               # scores simple predictions per patch
+```
+
+- `training/games.parquet`: one row per game with both teams' champion numbers
+  (the main model's training data).
+- `training/champion_patch.parquet`: one row per champion per patch with winrate, pick
+  and ban rate, the champion's numbers and what changed from the last patch.
+- `baselines.py` reports how close each simple prediction gets to real winrates, next to
+  the **noise floor** (the best any prediction could do with this many games).
+
+Re-run both whenever the collector has added games or a new patch arrives (after
+`build_patch_state.py`).
+
 ## What gets saved
 
 - `lol_data.db`: everything the model uses (balance data, matches, players, objectives,

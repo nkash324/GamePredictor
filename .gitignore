@@ -22,3 +22,6 @@ cdragon_cache/
 
 # generated training tables (rebuilt from lol_data.db)
 training/
+
+# trained models (rebuilt by train_game_model.py)
+models/
