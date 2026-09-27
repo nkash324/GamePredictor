@@ -458,3 +458,4 @@ In short: average miss 1.27 pts, of which luck explains 1.10; the model's own er
 
 All 8 steps finished in 6.1 min. Full output saved to pipeline.log
 Diagnostics: open report.html in your browser.
+Copied 16 result files to results\ (to share: git add results, commit, push)
