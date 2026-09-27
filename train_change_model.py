@@ -586,7 +586,7 @@ def direction_rate(pred, actual, mask):
 def evaluate(cp, X):
     ev = eval_rows(cp)
     patches = sorted(ev["patch"].unique(), key=pkey)
-    rows, detail = [], []
+    rows, detail, step1 = [], [], []
     for i, p in enumerate(patches):
         past = patches[:i]
         if len(past) < MIN_TRAIN_PATCHES:
@@ -594,6 +594,17 @@ def evaluate(cp, X):
         tr = ev[ev["patch"].isin(past)]
         te = ev[ev["patch"] == p]
         pr = Predictor(tr, X, past)
+        # check step 1 of the performance route on this unseen patch: do balance changes
+        # predict how damage, gold, ... actually changed?
+        perf = pr.perf if pr.perf is not None else PerfRoute().fit(tr, X, pr.base)
+        tch = te[te["affected"] == 1]
+        if not perf.off and len(tch):
+            pred_s = perf.stat_changes(X.loc[tch.index])
+            act_s = perf_targets(tch)
+            for t in pred_s.columns:
+                if t in act_s:
+                    step1.append(pd.DataFrame({"stat": t, "pred": pred_s[t].values,
+                                               "actual": act_s[t].values, "games": tch["games"].values}))
         # the simple baseline: last patch's winrate pulled toward 50% by one learned amount
         x = tr["prev_winrate_smoothed"] - 0.5
         k_last = float(np.sum(tr["games"] * x * (tr["winrate"] - 0.5)) / np.sum(tr["games"] * x * x))
@@ -659,7 +670,36 @@ def evaluate(cp, X):
         contrib = pr.contributions(te, X)
         d["why"] = [top_reasons(contrib.loc[i], ch.loc[i]) for i in te.index]
         detail.append(d)
+    global STEP1_CHECK
+    STEP1_CHECK = pd.concat(step1, ignore_index=True).dropna() if step1 else pd.DataFrame()
     return pd.DataFrame(rows), (pd.concat(detail) if detail else pd.DataFrame())
+
+
+STEP1_CHECK = pd.DataFrame()
+
+
+def print_step1(out_dir=None):
+    """How well balance changes predicted the performance stats on unseen patches."""
+    s = STEP1_CHECK
+    if s is None or s.empty:
+        return
+    rows = []
+    for t, g in s.groupby("stat"):
+        if len(g) < 10 or g["pred"].std() == 0:
+            continue
+        rows.append({"stat": PERF_NAMES.get(t, t), "n": len(g),
+                     "line-up r": wcorr(g["pred"].values, g["actual"].values, g["games"].values),
+                     "direction right": float(np.mean(np.sign(g["pred"]) == np.sign(g["actual"])))})
+    if not rows:
+        return
+    r = pd.DataFrame(rows).sort_values("line-up r", ascending=False)
+    print("\nPerformance route, step 1 check - do balance changes predict how each stat changed?")
+    print("(affected champions on patches the model never saw; r: 0 = no, 1 = perfectly)")
+    for _, x in r.iterrows():
+        print(f"  {x['stat']:<18} r = {x['line-up r']:+.2f}   direction right {x['direction right']:.0%}"
+              f"   ({int(x['n'])} champion-patches)")
+    if out_dir:
+        r.to_csv(os.path.join(out_dir, "perf_step1_check.csv"), index=False)
 
 
 def print_eval(res, detail):
@@ -822,6 +862,7 @@ def main(argv=None):
         return
     res, detail = evaluate(cp, X)
     print_eval(res, detail)
+    print_step1(args.dir)
     if not res.empty:
         res.to_csv(os.path.join(args.dir, "change_model_results.csv"), index=False)
         detail.to_csv(os.path.join(args.dir, "change_model_predictions.csv"), index=False)

@@ -102,7 +102,8 @@ RESULT_FILES = [
     "training/diagnostics_breakdown.csv", "training/predicted_changes_*.csv",
     "training/game_test_predictions.parquet", "models/importance_numbers.csv",
     "training/strength_results.csv", "training/strength_predictions.csv",
-    "training/item_changes.csv", "training/item_users.csv",
+    "training/item_changes.csv", "training/item_users.csv", "training/perf_step1_check.csv",
+    "training/champion_patch.parquet",
     "training/strength_predicted_*.csv", "models/strength_corrections.csv",
 ]
 MAX_RESULT_MB = 25
