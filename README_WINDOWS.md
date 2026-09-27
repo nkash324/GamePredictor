@@ -102,6 +102,21 @@ which opens in your browser when it's done). It stops with a clear message if an
   (much faster once there's a lot of data).
 - `python run_pipeline.py --skip-fetch` skips checking CommunityDragon for new patches.
 - `python run_pipeline.py --only-data` updates the data and tables, but not the model.
+- `update_model.bat --max-ram-gb 6` changes the RAM limit (see below).
+
+### RAM limit
+
+The update is limited to **7 GB of RAM** by default (all steps together), so it can't
+freeze the PC. If a step needs more, only that step stops, with a message saying it ran
+out of memory, and the rest of the computer keeps working. After each step the window
+shows the peak RAM used so far, so you can see how close it gets.
+
+- Change the limit: `update_model.bat --max-ram-gb 8` (or `python run_pipeline.py --max-ram-gb 8`).
+  `0` turns the limit off.
+- If it runs out of memory: close other programs (browsers use a lot), raise the limit a
+  little, or use `--quick` (skips the patch-by-patch testing, the heaviest part).
+- Running one script on its own (e.g. `python train_game_model.py`) uses the same 7 GB
+  limit. To change it for that PowerShell window: `$env:LOL_MAX_RAM_GB = "6"`.
 
 The sections below describe each step, if you ever want to run one by itself.
 
@@ -132,8 +147,9 @@ python build_training_tables.py   # seconds: games + champion-patch tables into 
 python baselines.py               # scores simple predictions per patch
 ```
 
-- `training/games.parquet`: one row per game with both teams' champion numbers
-  (the main model's training data).
+- `training/games.parquet`: one row per game with the blue-minus-red differences of the
+  teams' champion numbers, lane-vs-lane differences and the 10 champions (the main
+  model's training data).
 - `training/champion_patch.parquet`: one row per champion per patch with winrate, pick
   and ban rate, the champion's numbers and what changed from the last patch.
 - `baselines.py` reports how close each simple prediction gets to real winrates, next to
@@ -163,20 +179,31 @@ python train_game_model.py --predict 16.18  # predicted effect of a patch's bala
 
 ```
 python train_change_model.py                  # tests it on past patches (seconds)
-python train_change_model.py --predict 16.19  # predicted winrate change per changed champion
+python train_change_model.py --predict 16.19  # predictions for every champion on a patch
 ```
 
-- Learns directly from past patches: "this champion got -8% base damage, is a mage, was
-  already strong ... and their winrate moved by X". Works for a brand-new patch before
-  any games are played, as soon as its balance data is loaded.
-- Starts from each champion's **recent strength** (last few patches, older ones count
-  less), which is steadier than last patch alone.
-- Reworks (25+ changed numbers) are flagged rather than read as % changes.
-- It tests itself on the latest patches first. If adding the balance changes doesn't
-  beat "no effect", it switches itself off for that patch (`alpha none` in the table).
-  That means the games are still too noisy to separate balance effects from luck. It
-  switches on more often as more games per patch are collected.
-- `--predict` saves `training/predicted_changes_<patch>.csv`.
+Two parts:
+
+- **Strength model**: how strong each champion is before balance changes, from recent
+  winrate, long-term winrate and popularity. Champions with lots of games keep their real
+  winrate (e.g. Ezreal around 47%). Champions with few games are pulled toward 50%, because
+  their winrate is mostly luck.
+- **Change model**: how much this patch's changes move the champion, learned from past
+  patches. Buffs and nerfs are scored separately (nerfs can hurt more than buffs help).
+  Reworks (25+ changed numbers) are flagged rather than read as % changes.
+
+Every changed champion gets two predictions:
+
+- **best guess**: the most accurate on average. Held back when the data is noisy, and
+  switched off for a patch if it didn't beat "no effect" on the latest patches.
+- **bold**: the same direction, sized like real patch swings. Less accurate on average,
+  but shows who is likely to move a lot. The test reports how often its direction is
+  right (50% = coin flip), overall and for the 3 biggest predicted movers per patch.
+
+There's also a likely range for each champion's true winrate. `--predict` lists changed
+champions plus the strongest and weakest predicted champions, and saves every champion to
+`training/predicted_changes_<patch>.csv`. It works for a brand-new patch before any games
+are played, as soon as its balance data is loaded.
 
 `python train_game_model.py --linear-trees` tries LightGBM linear trees (smoother
 reaction to small stat changes). Off by default because it didn't help on 82k games.
@@ -195,12 +222,14 @@ from what the other steps saved. It takes seconds and retrains nothing. Sections
 3. **Champions the model keeps getting wrong**, missed in the same direction patch after
    patch. That's a real pattern, not luck.
 4. **Calibration**: when it says 52% (or +2 points), is that what happens on average?
-5. **Why**: the three inputs that pushed each prediction most, and what the change model
-   learned. Weights learned from fewer than 10 champions are marked shaky.
-6. **Patch by patch**, every method next to the luck floor.
-7. **Game model**: accuracy per patch, region and rank, calibration, champions it
+5. **Bold picks**: how often bold predictions get the direction right, by prediction
+   size, plus the biggest ones and what caused them.
+6. **What the models learned**: the strength model's settings and the change model's
+   weights. Weights learned from fewer than 10 champions are marked shaky.
+7. **Patch by patch**, every method next to the luck floor.
+8. **Game model**: accuracy per patch, region and rank, calibration, champions it
    misjudges, and what it relies on.
-8. **Data checks**: games per patch, suspiciously large changes (possible reading
+9. **Data checks**: games per patch, suspiciously large changes (possible reading
    errors) and reworks.
 
 The same group numbers are also saved to `training/diagnostics_breakdown.csv`, and every

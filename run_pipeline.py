@@ -19,6 +19,7 @@ Usage:
   python run_pipeline.py --skip-fetch    don't check CommunityDragon for new patches
   python run_pipeline.py --quick         skip the per-patch model testing (just retrain)
   python run_pipeline.py --only-data     steps 1-3 only (no baselines / models)
+  python run_pipeline.py --max-ram-gb 6  keep RAM use under 6 GB (default 7, 0 = no limit)
 (or double-click update_model.bat)
 """
 
@@ -30,6 +31,8 @@ import time
 from datetime import datetime
 
 HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, HERE)
+import memlimit  # noqa: E402
 LOG = os.path.join(HERE, "pipeline.log")
 
 
@@ -42,6 +45,7 @@ def log(msg, fh):
 def run_step(n, total, title, args, fh, optional=False):
     log(f"\n{'=' * 70}\n[{n}/{total}] {title}\n{'=' * 70}", fh)
     t0 = time.time()
+    mem_error = False
     proc = subprocess.Popen([sys.executable, "-u"] + args, cwd=HERE, stdout=subprocess.PIPE,
                             stderr=subprocess.STDOUT, text=True, encoding="utf-8",
                             errors="replace")
@@ -49,8 +53,20 @@ def run_step(n, total, title, args, fh, optional=False):
         # the fetch step prints a progress line every 50 files - keep the screen readable
         if "files |" in line and "/s |" in line:
             continue
+        mem_error = mem_error or memlimit.is_memory_error(line)
         log(line.rstrip("\n"), fh)
     code = proc.wait()
+    peak = memlimit.peak_gb()
+    try:
+        near_limit = peak is not None and peak >= 0.95 * float(os.environ.get("LOL_MAX_RAM_GB", 0))
+    except ValueError:
+        near_limit = False
+    if code != 0 and (mem_error or near_limit):   # LightGBM can stop silently when out of RAM
+        limit = os.environ.get("LOL_MAX_RAM_GB", "?")
+        log(f"\n!!! {title} ran out of memory (RAM limit {limit} GB). Your PC is fine - only this "
+            f"step stopped. Options: close other programs and run again, raise the limit "
+            f"(update_model.bat --max-ram-gb 8), or use --quick to skip the per-patch testing.",
+            fh)
     took = time.time() - t0
     if code != 0:
         if optional:
@@ -60,7 +76,9 @@ def run_step(n, total, title, args, fh, optional=False):
         log(f"\n!!! {title} FAILED (exit code {code}) after {took:.0f}s - stopping here. "
             f"See the messages above (also saved in pipeline.log).", fh)
         return False
-    log(f"-- done in {took / 60:.1f} min" if took >= 60 else f"-- done in {took:.0f}s", fh)
+    peak_txt = f", peak RAM so far {peak:.1f} GB" if peak else ""
+    log((f"-- done in {took / 60:.1f} min" if took >= 60 else f"-- done in {took:.0f}s") + peak_txt,
+        fh)
     return True
 
 
@@ -71,6 +89,8 @@ def main(argv=None):
     ap.add_argument("--quick", action="store_true",
                     help="skip testing the model patch by patch; just train the final models")
     ap.add_argument("--only-data", action="store_true", help="stop after the training tables")
+    ap.add_argument("--max-ram-gb", type=float, default=memlimit.DEFAULT_GB,
+                    help=f"RAM limit for all steps together (default {memlimit.DEFAULT_GB:g}, 0 = none)")
     args = ap.parse_args(argv)
 
     for f in ("lol_data.db", "build_patch_state.py", "build_training_tables.py"):
@@ -93,6 +113,9 @@ def main(argv=None):
     t_start = time.time()
     with open(LOG, "w", encoding="utf-8") as fh:
         log(f"Pipeline started {datetime.now():%Y-%m-%d %H:%M}  ({len(steps)} steps)", fh)
+        lim = memlimit.apply(args.max_ram_gb, quiet=True)
+        log(f"RAM limit: {lim:g} GB for all steps (change with --max-ram-gb)" if lim else
+            "RAM limit: none", fh)
         for i, (title, cmd, optional) in enumerate(steps, 1):
             if not run_step(i, len(steps), title, cmd, fh, optional):
                 sys.exit(1)

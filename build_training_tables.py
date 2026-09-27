@@ -85,12 +85,26 @@ def save(df, name, out_dir):
 # --------------------------------------------------------------------------- #
 def champion_vectors(con):
     """DataFrame indexed by (patch, champ_key) with the core features."""
-    raw = pd.read_sql_query(
-        "SELECT patch, champion_id, champ_key, feature, value FROM patch_champion_features", con)
+    # only the features used below - read in pieces, so the (large) full table is never
+    # in memory at once
+    def needed(f):
+        return (f in CORE_EXACT or f.startswith(tuple(CORE_PREFIXES))
+                or (f[:2] in ("Q_", "W_", "E_", "R_")
+                    and (f.endswith(("_cd_rmax", "_cd_r1", "_cost_rmax", "_range_rmax"))
+                         or f.endswith("_base_rmax"))))
+    pieces = []
+    for chunk in pd.read_sql_query(
+            "SELECT patch, champion_id, champ_key, feature, value FROM patch_champion_features",
+            con, chunksize=200_000):
+        pieces.append(chunk[chunk["feature"].map(needed)])
+    raw = pd.concat(pieces, ignore_index=True) if pieces else pd.DataFrame()
+    del pieces
     if raw.empty:
         sys.exit("patch_champion_features is empty - run build_patch_state.py first.")
-    wide = raw.pivot_table(index=["patch", "champion_id", "champ_key"], columns="feature",
-                           values="value", aggfunc="first").reset_index()
+    raw = raw.drop_duplicates(["patch", "champion_id", "champ_key", "feature"])
+    wide = raw.set_index(["patch", "champion_id", "champ_key", "feature"])["value"].unstack(
+        "feature").reset_index()
+    del raw
     wide.columns.name = None
     cols = [c for c in wide.columns if c in CORE_EXACT or any(c.startswith(p) for p in CORE_PREFIXES)]
     out = wide[["patch", "champion_id", "champ_key"] + cols].copy()
@@ -133,13 +147,20 @@ def champion_vectors(con):
 # Games table
 # --------------------------------------------------------------------------- #
 def load_games(con):
+    import memlimit
     m = pd.read_sql_query("""
         SELECT match_id, platform, patch, game_start, duration_s, winning_team,
                rank_bucket, rank_source
         FROM matches""", con)
-    p = pd.read_sql_query("""
-        SELECT match_id, team_id, champion_id AS champ_key, champion_name, position, keystone
-        FROM participants""", con)
+    pieces = []
+    for chunk in pd.read_sql_query("""
+            SELECT match_id, team_id, champion_id AS champ_key, position
+            FROM participants""", con, chunksize=500_000):
+        chunk["team_id"] = chunk["team_id"].astype("int16")
+        pieces.append(chunk[chunk["position"].isin(POSITIONS)])   # drop junk rows early
+    p = pd.concat(pieces, ignore_index=True)
+    del pieces
+    print(f"  loaded {len(m):,} games / {len(p):,} players{memlimit.ram_note()}", flush=True)
     stats = {"total": len(m)}
     m = m[m["winning_team"].isin([100, 200])]
     stats["no_winner"] = stats["total"] - len(m)
@@ -158,33 +179,63 @@ def load_games(con):
     return m, p, stats
 
 
-def team_features(m, p, vec, feats):
-    """Sum each team's champion vectors, plus blue-red and lane differences."""
-    pv = p.merge(m[["match_id", "patch"]], on="match_id").merge(
-        vec.drop(columns=["champion_id"]), on=["patch", "champ_key"], how="left")
+CHUNK_GAMES = 20000           # games processed at a time (keeps RAM use low)
+
+
+def team_features(m, p, vec, feats, team_sums=False, chunk=CHUNK_GAMES):
+    """Blue-red differences of the teams' champion numbers, lane-vs-lane differences and
+    the 10 champion ids. Works through the games in chunks and stores numbers as float32
+    (half the memory of the default), so RAM use stays low as the dataset grows.
+    team_sums=True also keeps each team's own totals (blue_..., red_...; not used by the
+    models)."""
+    vec = vec.drop(columns=["champion_id"], errors="ignore").copy()
+    vec[feats] = vec[feats].astype(np.float32)
+    ids_all = m["match_id"].unique()
+    outs, n_bad = [], 0
+    for i in range(0, len(ids_all), chunk):
+        part = set(ids_all[i:i + chunk])
+        o, b = _team_features_chunk(m[m["match_id"].isin(part)], p[p["match_id"].isin(part)],
+                                    vec, feats, team_sums)
+        outs.append(o)
+        n_bad += b
+        if len(ids_all) > chunk:
+            import memlimit
+            print(f"  game numbers: {min(i + chunk, len(ids_all)):,} / {len(ids_all):,}"
+                  f"{memlimit.ram_note()}", flush=True)
+    return (pd.concat(outs) if outs else pd.DataFrame()), n_bad
+
+
+def _team_features_chunk(m, p, vec, feats, team_sums):
+    pv = p[["match_id", "team_id", "champ_key", "position"]].merge(
+        m[["match_id", "patch"]], on="match_id").merge(vec, on=["patch", "champ_key"], how="left")
     missing = pv[feats[0]].isna().groupby(pv["match_id"]).any()
     bad = set(missing[missing].index)            # games with a champion we have no numbers for
     pv = pv[~pv["match_id"].isin(bad)]
-    pv[feats] = pv[feats].fillna(0.0)
+    pv[feats] = pv[feats].fillna(0.0).astype(np.float32)
 
     sums = pv.groupby(["match_id", "team_id"])[feats].sum()
-    blue = sums.xs(100, level="team_id").add_prefix("blue_")
-    red = sums.xs(200, level="team_id").add_prefix("red_")
-    diff = pd.DataFrame(blue.values - red.values, index=blue.index,
-                        columns=[f"diff_{c}" for c in feats])
+    blue = sums.xs(100, level="team_id")
+    red = sums.xs(200, level="team_id").reindex(blue.index)
+    parts = [pd.DataFrame((blue.values - red.values).astype(np.float32), index=blue.index,
+                          columns=[f"diff_{c}" for c in feats])]
+    if team_sums:
+        parts = [blue.add_prefix("blue_"), red.add_prefix("red_")] + parts
+    del sums
 
     lane_cols = [c for c in LANE_FEATURES if c in feats]
     lanes = pv.pivot_table(index="match_id", columns=["team_id", "position"],
                            values=lane_cols, aggfunc="first")
-    lane_df = pd.DataFrame({f"lane_{pos}_{f}": lanes[(f, 100, pos)] - lanes[(f, 200, pos)]
-                            for f in lane_cols for pos in POSITIONS}, index=lanes.index)
+    parts.append(pd.DataFrame({f"lane_{pos}_{f}": (lanes[(f, 100, pos)] - lanes[(f, 200, pos)])
+                               .astype(np.float32)
+                               for f in lane_cols for pos in POSITIONS}, index=lanes.index))
+    del pv, lanes
 
     ids = p.pivot_table(index="match_id", columns=["team_id", "position"], values="champ_key",
                         aggfunc="first")
     id_df = pd.DataFrame({f"{side}_{pos}_champ": ids[(team, pos)].astype("Int64")
                           for team, side in ((100, "blue"), (200, "red")) for pos in POSITIONS},
                          index=ids.index)
-    out = pd.concat([blue, red, diff, lane_df], axis=1).join(id_df, how="left")
+    out = pd.concat(parts, axis=1).join(id_df, how="left")
     return out, len(bad)
 
 
@@ -275,11 +326,13 @@ def main(argv=None):
     ap.add_argument("--db", default="lol_data.db")
     ap.add_argument("--out", default="training")
     args = ap.parse_args(argv)
+    import memlimit
+    memlimit.apply()          # stay under the RAM limit (default 7 GB)
     con = sqlite3.connect(f"file:{args.db}?mode=ro", uri=True, timeout=60)
 
     vec, feats = champion_vectors(con)
     print(f"Champion features: {len(feats)} numbers per champion, "
-          f"{vec['patch'].nunique()} patches")
+          f"{vec['patch'].nunique()} patches{memlimit.ram_note()}", flush=True)
     games, stats, parts = build_games(con, vec, feats)
     print(f"Games: {stats['total']:,} collected -> {stats['kept']:,} kept "
           f"(dropped: {stats['no_winner']} no winner, {stats['too_short']} under "
@@ -288,18 +341,19 @@ def main(argv=None):
     by = games.groupby("patch").size()
     print("Games per patch: " + ", ".join(f"{p} {n:,}" for p, n in
                                           sorted(by.items(), key=lambda kv: pkey(kv[0]), reverse=True)))
-    model_cols = [c for c in games if c.startswith(("blue_", "red_", "diff_", "lane_"))
-                  and not c.endswith("_champ")]
+    model_cols = [c for c in games if c.startswith(("diff_", "lane_"))]
     print(f"Model inputs per game: {len(model_cols)} numbers "
           f"(+10 champion ids, + platform and rank)")
     print(f"Blue side win rate: {games['blue_win'].mean():.1%}  |  "
           f"timeline gold@15 available: {games['aux_gold_diff_15'].notna().mean():.0%} of games")
 
     cp = build_champion_patch(con, games, parts, vec, feats)
+    del parts
     with_data = cp[cp["games"].notna()]
     print(f"Champion-patch rows: {len(cp):,} ({len(with_data):,} with games; "
           f"median {with_data['games'].median():.0f} games per champion per patch)")
 
+    print(f"  tables built{memlimit.ram_note()}", flush=True)
     p1 = save(games, "games", args.out)
     p2 = save(cp, "champion_patch", args.out)
     print(f"Saved {p1} and {p2}")

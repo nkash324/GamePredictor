@@ -92,58 +92,91 @@ def number_cols(df):
     return [c for c in df.columns if c.startswith(("diff_", "lane_"))]
 
 
-def add_context(df, platforms):
-    out = pd.DataFrame(index=df.index)
-    out["ctx_master"] = (df["rank_bucket"] == "MASTER+").astype(float)
-    for p in platforms:
-        out[f"ctx_{p}"] = (df["platform"] == p).astype(float)
-    return out
+GAME_KEEP = ["match_id", "patch", "platform", "rank_bucket", "blue_win"]
 
 
-def mirror(X, variant):
-    """Same game seen from the red side: swap teams, flip differences."""
-    M = X.copy()
-    for c in X.columns:
-        if c.startswith(("diff_", "lane_")):
-            M[c] = -X[c]
-    if variant == "identity":
-        for p in POSITIONS:
-            M[f"blue_{p}_champ"], M[f"red_{p}_champ"] = X[f"red_{p}_champ"], X[f"blue_{p}_champ"]
-    M["ctx_blue_side"] = 1.0 - X["ctx_blue_side"]
-    return M
-
-
-def design(df, variant, platforms, num_cols):
-    X = df[num_cols].astype(float).copy()
-    X = pd.concat([X, add_context(df, platforms)], axis=1)
-    X["ctx_blue_side"] = 1.0
-    if variant == "identity":
-        for c in ID_COLS:
-            X[c] = df[c].astype("float").fillna(-1).astype(int)
-    return X
+def load_games(path_dir):
+    """Only the columns the model needs, numbers as float32 (half the memory)."""
+    p = os.path.join(path_dir, "games.parquet")
+    if os.path.exists(p):
+        try:
+            import pyarrow.parquet as pq
+            names = pq.read_schema(p).names
+            keep = [c for c in names if c.startswith(("diff_", "lane_")) or c in ID_COLS
+                    or c in GAME_KEEP]
+            g = pd.read_parquet(p, columns=keep)
+        except ImportError:
+            g = pd.read_parquet(p)
+    else:
+        g = load_table(path_dir, "games")
+    drop = [c for c in g.columns if c.startswith(("blue_", "red_")) and c not in ID_COLS
+            and c != "blue_win"]
+    g = g.drop(columns=drop)
+    for c in number_cols(g):                    # column by column: no big temporary copy
+        g[c] = g[c].astype(np.float32)
+    return g
 
 
 class GameModel:
     """
-    LightGBM "does blue win?" model. Data is handed to LightGBM as plain, contiguous
-    number arrays (the most compatible format - avoids crashes some Windows installs
-    have with pandas input).
+    LightGBM "does blue win?" model. Each game is used twice: as it happened, and seen
+    from the red side (teams swapped, differences flipped), so the model has no side bias
+    beyond the real blue-side effect.
+
+    Data is written straight into one compact float32 number array (no pandas copies),
+    which keeps RAM use low and is also the most compatible format for LightGBM on Windows.
     """
 
     def __init__(self, variant, platforms, num_cols):
         self.variant, self.platforms, self.num_cols = variant, platforms, num_cols
         self.booster = None
         self.cat_levels = None   # champion keys, identity model only
-        self.names = None
+        self.names = (list(num_cols) + ["ctx_master"] + [f"ctx_{p}" for p in platforms]
+                      + ["ctx_blue_side"] + (ID_COLS if variant == "identity" else []))
 
-    def _matrix(self, X):
-        X = X.copy()
+    # -- building the number array ------------------------------------------------ #
+    def _lut(self):
+        top = max(self.cat_levels) if self.cat_levels else 0
+        lut = np.full(top + 2, np.nan, dtype=np.float32)
+        lut[self.cat_levels] = np.arange(len(self.cat_levels), dtype=np.float32)
+        return lut
+
+    def _ids(self, df, col, rows):
+        v = df[col].to_numpy(dtype=np.float64, na_value=np.nan)[rows]
+        out = np.full(len(v), np.nan, dtype=np.float32)
+        ok = ~np.isnan(v) & (v >= 0) & (v < len(self._lut_cache) - 1)
+        out[ok] = self._lut_cache[v[ok].astype(np.int64)]
+        return out                                   # unknown champion -> NaN
+
+    def _fill(self, M, start, df, rows, mirrored):
+        """Write games `rows` of df into M[start:start+len(rows)] (as blue, or mirrored)."""
+        end = start + len(rows)
+        k = len(self.num_cols)
+        sign = np.float32(-1.0 if mirrored else 1.0)
+        for j, c in enumerate(self.num_cols):
+            M[start:end, j] = df[c].to_numpy()[rows] * sign
+        M[start:end, k] = (df["rank_bucket"].to_numpy()[rows] == "MASTER+")
+        plat = df["platform"].to_numpy()[rows]
+        for i, p in enumerate(self.platforms):
+            M[start:end, k + 1 + i] = (plat == p)
+        j = k + 1 + len(self.platforms)
+        M[start:end, j] = 0.0 if mirrored else 1.0           # ctx_blue_side
         if self.variant == "identity":
-            code = {k: i for i, k in enumerate(self.cat_levels)}
-            for c in ID_COLS:
-                X[c] = X[c].map(code).astype(float)          # unknown champion -> NaN
-        return np.ascontiguousarray(X.to_numpy(dtype=np.float32))
+            for i, pos in enumerate(POSITIONS):
+                b, r = f"blue_{pos}_champ", f"red_{pos}_champ"
+                src_b, src_r = (r, b) if mirrored else (b, r)
+                M[start:end, j + 1 + i] = self._ids(df, src_b, rows)
+                M[start:end, j + 1 + len(POSITIONS) + i] = self._ids(df, src_r, rows)
 
+    def _matrix(self, df, rows, both_sides=True):
+        n = len(rows)
+        M = np.empty((2 * n if both_sides else n, len(self.names)), dtype=np.float32)
+        self._fill(M, 0, df, rows, False)
+        if both_sides:
+            self._fill(M, n, df, rows, True)
+        return M
+
+    # -- training ------------------------------------------------------------------ #
     @staticmethod
     def _params(seed):
         p = PARAMS
@@ -156,29 +189,29 @@ class GameModel:
                    if LINEAR_TREES["on"] else {})}
 
     def fit(self, df, seed=0):
-        X = design(df, self.variant, self.platforms, self.num_cols)
         y = df["blue_win"].to_numpy(dtype=np.float64)
         if self.variant == "identity":
-            self.cat_levels = sorted(int(v) for v in np.unique(X[ID_COLS].values) if v >= 0)
+            vals = np.concatenate([df[c].to_numpy(dtype=np.float64, na_value=-1) for c in ID_COLS])
+            self.cat_levels = sorted(int(v) for v in np.unique(vals) if v >= 0)
+            self._lut_cache = self._lut()
         rng = np.random.default_rng(seed)
-        val = rng.random(len(X)) < 0.15             # validation split, by game
-        Xa = pd.concat([X, mirror(X, self.variant)], ignore_index=True)
-        self.names = list(Xa.columns)
-        M = self._matrix(Xa)
-        ya = np.ascontiguousarray(np.concatenate([y, 1.0 - y]))
-        va = np.concatenate([val, val])
+        val = rng.random(len(df)) < 0.15             # validation split, by game
+        tr_rows, va_rows = np.flatnonzero(~val), np.flatnonzero(val)
         cats = [self.names.index(c) for c in ID_COLS] if self.variant == "identity" else []
         if not ENGINE["use_sklearn"]:
             try:
-                dtrain = lgb.Dataset(np.ascontiguousarray(M[~va]),
-                                     label=np.ascontiguousarray(ya[~va]),
-                                     feature_name=self.names, categorical_feature=cats or "auto")
-                dval = lgb.Dataset(np.ascontiguousarray(M[va]), label=np.ascontiguousarray(ya[va]),
-                                   reference=dtrain)
+                ytr = np.concatenate([y[tr_rows], 1.0 - y[tr_rows]])
+                yva = np.concatenate([y[va_rows], 1.0 - y[va_rows]])
+                dtrain = lgb.Dataset(self._matrix(df, tr_rows), label=ytr,
+                                     feature_name=self.names, categorical_feature=cats or "auto",
+                                     free_raw_data=True)
+                dval = lgb.Dataset(self._matrix(df, va_rows), label=yva, reference=dtrain,
+                                   free_raw_data=True)
                 self.booster = lgb.train(self._params(seed), dtrain,
                                          num_boost_round=PARAMS["n_estimators"],
                                          valid_sets=[dval],
                                          callbacks=[lgb.early_stopping(100, verbose=False)])
+                del dtrain, dval
                 self.engine = "lightgbm"
                 self.trees = self.booster.best_iteration or PARAMS["n_estimators"]
                 return self
@@ -187,7 +220,8 @@ class GameModel:
                 print(f"  NOTE: LightGBM crashed on this computer ({e}). Switching to "
                       f"scikit-learn's HistGradientBoosting (same technique). To try LightGBM "
                       f"again later:  pip install \"lightgbm==4.6.0\"", flush=True)
-        self._fit_sklearn(M, ya, cats, seed)
+        all_rows = np.arange(len(df))
+        self._fit_sklearn(self._matrix(df, all_rows), np.concatenate([y, 1.0 - y]), cats, seed)
         return self
 
     def _fit_sklearn(self, M, y, cats, seed):
@@ -211,17 +245,19 @@ class GameModel:
         clf.fit(M, y.astype(int))
         self.booster, self.engine, self.trees = clf, "sklearn", int(clf.n_iter_)
 
-    def predict(self, df):
-        """P(blue wins), averaged over both side views so it's symmetric."""
-        X = design(df, self.variant, self.platforms, self.num_cols)
-        if self.engine == "sklearn":
-            p1 = self.booster.predict_proba(self._matrix(X))[:, 1]
-            p2 = self.booster.predict_proba(self._matrix(mirror(X, self.variant)))[:, 1]
-        else:
-            p1 = self.booster.predict(self._matrix(X), num_iteration=self.trees)
-            p2 = self.booster.predict(self._matrix(mirror(X, self.variant)),
-                                      num_iteration=self.trees)
-        return (p1 + (1 - p2)) / 2
+    def predict(self, df, batch=50000):
+        """P(blue wins), averaged over both side views so it's symmetric. Done in batches."""
+        out = np.empty(len(df))
+        for s0 in range(0, len(df), batch):
+            rows = np.arange(s0, min(s0 + batch, len(df)))
+            n = len(rows)
+            M = self._matrix(df, rows)
+            if self.engine == "sklearn":
+                pr = self.booster.predict_proba(M)[:, 1]
+            else:
+                pr = self.booster.predict(M, num_iteration=self.trees)
+            out[s0:s0 + n] = (pr[:n] + (1 - pr[n:])) / 2
+        return out
 
     def importance(self, top=15):
         if self.engine == "sklearn":
@@ -414,8 +450,10 @@ def main(argv=None):
                     help="LightGBM linear trees (smoother reaction to small stat changes)")
     args = ap.parse_args(argv)
     LINEAR_TREES["on"] = args.linear_trees
+    import memlimit
+    memlimit.apply()          # stay under the RAM limit (default 7 GB) instead of freezing the PC
 
-    games = load_table(args.dir, "games")
+    games = load_games(args.dir)
     cp = load_table(args.dir, "champion_patch")
     num_cols = number_cols(games)
     platforms = sorted(games["platform"].unique())

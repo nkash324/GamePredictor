@@ -423,98 +423,157 @@ def sec_calibration(d):
                             (d["noise_sd"] * 100) ** 2)
     lo = min(px + py) - 1 if px else 45
     hi = max(px + py) + 1 if px else 55
-    parts.append("<div class='grid2'><div><h3>Starting point: recent strength</h3>"
+    parts.append("<div class='grid2'><div><h3>Starting point: expected strength</h3>"
                  + svg_calibration(px, py, pe, "predicted winrate %", "actual winrate %", lo, hi,
                                    "{:.1f}")
-                 + "<p class='cap'>Champions grouped by predicted winrate. On the diagonal = "
-                   "right on average. A line flatter than the diagonal = the model trusts past "
-                   "winrates too much; steeper = too little.</p></div>")
-    ch = d[(d["changed"] == 1) & (d["model_on"] == 1)]
-    px, py, pe = calib_bins(ch["predicted"] * 100, ch["actual"] * 100, ch["games"],
+                 + "<p class='cap'>Champions grouped by predicted winrate (before balance "
+                   "changes). On the diagonal = right on average. Flatter than the diagonal = the "
+                   "model spreads champions too far from 50%; steeper = not far enough.</p></div>")
+    eff = "bold" if "bold" in d else "predicted"
+    ch = d[(d["changed"] == 1) & (d[eff].abs() > 0)]
+    px, py, pe = calib_bins(ch[eff] * 100, ch["actual"] * 100, ch["games"],
                             (ch["noise_sd"] * 100) ** 2, nbins=5)
     if px:
         m = max(abs(v) for v in px + py) + 1
-        parts.append("<div><h3>Balance-change effect</h3>"
+        parts.append(f"<div><h3>Balance-change effect ({'bold' if eff == 'bold' else 'best guess'})</h3>"
                      + svg_calibration(px, py, pe, "predicted effect (points)",
-                                       "actual change beyond recent strength", -m, m, "{:+.1f}")
-                     + "<p class='cap'>Changed champions (patches where the change model was on), "
-                       "grouped by predicted effect. Bars = 2 luck wobbles: if they cross the "
-                       "diagonal, the model is right within luck.</p></div></div>")
+                                       "actual change beyond expected strength", -m, m, "{:+.1f}")
+                     + "<p class='cap'>Changed champions grouped by predicted effect. Bars = 2 "
+                       "luck wobbles. Points rising left to right = the direction is right. Bold "
+                       "predictions are sized like real swings, so they're expected to overshoot "
+                       "(flatter than the diagonal) while the signal is weak.</p></div></div>")
     else:
-        parts.append("<div>" + note("The change model hasn't been switched on yet, so there's "
-                                    "no effect to check.") + "</div></div>")
+        parts.append("<div>" + note("No balance-change effects predicted yet.") + "</div></div>")
     allch = d[d["changed"] == 1]
     parts.append("<h3>Every changed champion: predicted vs actual change</h3>"
-                 + svg_scatter(allch["predicted"] * 100, allch["actual"] * 100, allch["games"],
+                 + svg_scatter(allch[eff] * 100, allch["actual"] * 100, allch["games"],
                                allch["patch"].astype(str) + " " + allch["champion_id"] + ": predicted "
-                               + (allch["predicted"] * 100).round(1).astype(str) + ", actual "
+                               + (allch[eff] * 100).round(1).astype(str) + ", actual "
                                + (allch["actual"] * 100).round(1).astype(str),
-                               "predicted effect (points)", "actual change beyond recent (points)")
+                               "predicted effect (points)", "actual change beyond expected (points)")
                  + "<p class='cap'>Dot size = games. Hover a dot for the champion. Points on the "
-                   "diagonal are perfect; the vertical spread at 0 is mostly luck.</p>")
+                   "diagonal are perfect. Top-right and bottom-left = right direction.</p>")
     return section("calib", "4. Are the predictions the right size?",
                    "Calibration: when the model says 52%, does it end up 52% on average? When it "
                    "says +2 points, do champions really gain 2?", "".join(parts))
 
 
+def sec_bold(d, cres):
+    if "bold" not in d:
+        return ""
+    ch = d[(d["changed"] == 1) & (d["bold"].abs() > 0.005)].copy()
+    if not len(ch):
+        return section("bold", "5. Bold predictions", "", note("No bold predictions yet."))
+    ch["right"] = np.sign(ch["bold"]) == np.sign(ch["actual"])
+    ch["size"] = pd.cut(ch["bold"].abs() * 100, [0, 1, 2, 4, 100],
+                        labels=["under 1 pt", "1-2 pts", "2-4 pts", "4+ pts"])
+    ch["games bucket"] = games_bucket(ch["games"])
+    parts = []
+    rows = []
+    for label, g in [("all changed champions", ch),
+                     ("with 300+ games", ch[ch["games"] >= 300])] + \
+                    [(f"predicted {s}", g) for s, g in ch.groupby("size", observed=True)]:
+        if len(g):
+            rows.append({"group": label, "n": len(g), "direction right": g["right"].mean() * 100,
+                         "avg predicted": g["bold"].abs().mean() * 100,
+                         "avg actual move": g["actual"].abs().mean() * 100})
+    t = pd.DataFrame(rows).set_index("group")
+    parts.append(table(t, {"n": "{:.0f}", "direction right": "{:.0f}%",
+                           "avg predicted": "{:.1f}", "avg actual move": "{:.1f}"},
+                       {"direction right": lambda v: "good" if v >= 60 else
+                        ("warn" if v >= 52 else "bad")}))
+    parts.append("<p class='cap'>50% = coin flip. If bigger predictions are right more often, "
+                 "the model knows which changes matter. <b>avg actual move</b> includes luck, so "
+                 "it's always a bit larger than the real effect.</p>")
+    if cres is not None and "top3 direction" in cres:
+        n = cres["top3 n"].sum()
+        rate = np.nansum(cres["top3 direction"] * cres["top3 n"]) / max(n, 1) * 100
+        parts.append(note(f"The 3 champions the model expected to move most each patch (100+ "
+                          f"games): direction right <b>{rate:.0f}%</b> of {int(n)}.",
+                          "good" if rate >= 60 else "warn"))
+    top = ch.reindex(ch["bold"].abs().sort_values(ascending=False).index).head(25)
+    top = top.assign(**{"bold": top["bold"] * 100, "best": top["predicted"] * 100,
+                        "actual": top["actual"] * 100,
+                        "result": np.where(top["right"], "right", "wrong")})
+    parts.append("<h3>Biggest bold predictions, and what caused them</h3>"
+                 + table(top[["patch", "champion_id", "role", "class", "games", "bold", "best",
+                              "actual", "result", "why"]].set_index("patch"),
+                         {"games": "{:,.0f}", "bold": "{:+.1f}", "best": "{:+.1f}",
+                          "actual": "{:+.1f}"},
+                         {"result": lambda v: "good" if v == "right" else "bad"}))
+    parts.append("<p class='cap'><b>why</b>: the three inputs that pushed the prediction most "
+                 "(before bold scaling), in points. <code>rel_</code> = % change of a number, "
+                 "<code>buff_part</code> / <code>nerf_part</code> = all buffs / nerfs added up, "
+                 "<code>mage_x_buff</code> = buffs on a mage.</p>")
+    return section("bold", "5. Bold predictions: does the model pick the right movers?",
+                   "Bold predictions keep the model's direction but are sized like real patch "
+                   "swings, so they show who is likely to move a lot. The question here is "
+                   "whether the direction is right.", "".join(parts))
+
+
 def sec_why(d, weights):
     parts = []
-    ch = d[(d["changed"] == 1) & (d["predicted"].abs() > 0)]
-    if len(ch):
-        top = ch.reindex(ch["predicted"].abs().sort_values(ascending=False).index).head(30)
-        top = top.assign(**{"predicted": top["predicted"] * 100, "actual": top["actual"] * 100})
-        parts.append("<h3>Biggest predicted effects, and what caused them</h3>"
-                     + table(top[["patch", "champion_id", "role", "class", "games", "predicted",
-                                  "actual", "z", "why"]].set_index("patch"),
-                             {"games": "{:,.0f}", "predicted": "{:+.1f}", "actual": "{:+.1f}",
-                              "z": "{:+.1f}"},
-                             {"actual": lambda v: ""}))
-        parts.append("<p class='cap'><b>why</b>: the three inputs that pushed the prediction most, "
-                     "in points. <code>rel_</code> = % change of a number, <code>mage_x_...</code> "
-                     "= that change on a mage, <code>buff_score</code> = all changes combined.</p>")
-    else:
-        parts.append(note("No balance-change effects predicted yet (the model has been switched "
-                          "off on every tested patch)."))
     if weights is not None and len(weights):
         w = weights.copy()
+        g = lambda c, default=np.nan: w[c].iloc[0] if c in w else default
+        if "k_long" in w:
+            parts.append("<h3>Strength model (before balance changes)</h3>" + table(pd.DataFrame({
+                "value": [f"{g('trust_games'):,.0f} games", f"{g('k_recent'):.2f}",
+                          f"{g('k_long'):.2f}", f"{g('k_popularity'):+.2f}"],
+                "meaning": ["games needed to half-trust a champion's winrate (fewer = pulled "
+                            "toward 50%)", "weight on recent winrate (last few patches)",
+                            "weight on long-term winrate", "effect of popularity (negative = "
+                            "popular champions win less)"]},
+                index=pd.Index(["trust", "recent", "long-term", "popularity"], name=""))))
         w["weight (pts per typical change)"] = w["weight"] * 100
         w["shaky"] = np.where(w["used_by_changed"] < 10, "yes - learned from few examples", "")
         parts.append("<h3>What the change model has learned (all patches)</h3>"
                      + table(w.set_index("feature")[["weight (pts per typical change)",
-                                                     "used_by_changed", "shaky"]].head(25),
+                                                     "used_by_changed", "shaky"]].head(30),
                              {"weight (pts per typical change)": "{:+.2f}",
                               "used_by_changed": "{:.0f}"},
                              {"shaky": lambda v: "warn" if v else ""}))
-        a = w["alpha"].iloc[0]
+        on = g("switched_on", 1)
         parts.append(note(
-            f"Model strength setting: alpha = {'none (switched off)' if not np.isfinite(a) else f'{a:g}'}. "
-            f"Share of recent strength carried to the next patch: {w['k_recent'].iloc[0]:.2f}. "
+            f"Ridge strength alpha = {g('alpha'):g}. Best guess currently "
+            f"<b>{'ON' if on else 'OFF'}</b>. Bold = {g('bold_scale', 1):.1f}x the raw effect. "
+            f"Likely range: +-{1.96 * g('sd_true', 0) * 100:.1f} pts around the best guess. "
             "Weights marked <b>shaky</b> come from fewer than 10 changed champions and are likely "
             "noise - these are the first to distrust."))
-    return section("why", "5. Why the model predicted what it did",
-                   "For the balance-change model, each prediction is a sum of simple parts, "
-                   "so every prediction can be traced back to its inputs.", "".join(parts))
+    else:
+        parts.append("<p class='muted'>No data yet.</p>")
+    return section("why", "6. What the models learned",
+                   "Both parts are sums of simple pieces, so every prediction can be traced back "
+                   "to its inputs.", "".join(parts))
 
 
 def sec_patches(cres, bres):
     parts = []
     if cres is not None and len(cres):
         c = cres.copy()
-        c["model on"] = np.where(np.isfinite(c["alpha"]), "on", "off")
+        c["best on"] = np.where(np.isfinite(c["alpha"]), "on", "off")
         order = sorted(c["patch"].astype(str), key=pkey)
         c = c.set_index(c["patch"].astype(str)).loc[order]
-        parts.append(svg_lines(order, {"last patch": (c["last"] * 100).values,
-                                       "recent": (c["shrunk"] * 100).values,
-                                       "model": (c["model"] * 100).values},
-                               "avg miss (points)", ref=("luck floor", (c["floor"] * 100).values)))
-        t = c[["train patches", "model on", "floor", "last", "shrunk", "model", "changed",
-               "shrunk ch", "model ch", "corr"]].rename(columns={"shrunk": "recent",
-                                                                  "shrunk ch": "recent ch"})
-        for col in ["floor", "last", "recent", "model", "recent ch", "model ch"]:
-            t[col] = t[col] * 100
+        series = {"last patch": (c["last"] * 100).values, "base": (c["shrunk"] * 100).values,
+                  "best": (c["model"] * 100).values}
+        parts.append(svg_lines(order, series, "avg miss (points)",
+                               ref=("luck floor", (c["floor"] * 100).values)))
+        cols = ["train patches", "best on", "floor", "last", "shrunk", "model", "changed",
+                "shrunk ch", "model ch", "bold ch", "direction", "top3 direction"]
+        t = c[[x for x in cols if x in c]].rename(columns={
+            "shrunk": "base", "model": "best", "shrunk ch": "base ch", "model ch": "best ch",
+            "direction": "bold dir", "top3 direction": "top-3 dir"})
+        for col in ["floor", "last", "base", "best", "base ch", "best ch", "bold ch",
+                    "bold dir", "top-3 dir"]:
+            if col in t:
+                t[col] = t[col] * 100
         parts.append(table(t.rename_axis("patch"),
-                           {"train patches": "{:.0f}", "changed": "{:.0f}", "corr": "{:+.2f}"},
-                           {"model": lambda v: "", "model ch": lambda v: ""}))
+                           {"train patches": "{:.0f}", "changed": "{:.0f}", "bold dir": "{:.0f}%",
+                            "top-3 dir": "{:.0f}%"}))
+        parts.append("<p class='cap'><b>base</b> = strength model only, <b>best</b> = + best-guess "
+                     "effect, <b>bold ch</b> = miss of bold predictions on changed champions, "
+                     "<b>bold dir</b> = bold direction right (100+ games), <b>top-3 dir</b> = same "
+                     "for the 3 biggest predicted movers.</p>")
     if bres is not None and len(bres):
         b = bres.copy()
         b["patch"] = b["patch"].astype(str)
@@ -522,7 +581,7 @@ def sec_patches(cres, bres):
         piv = piv.loc[sorted(piv.index, key=pkey)]
         parts.append("<h3>Simple baselines per patch (avg miss, points)</h3>"
                      + table(piv.rename_axis("patch"), {c: "{:.2f}" for c in piv.columns}))
-    return section("patches", "6. Patch by patch",
+    return section("patches", "7. Patch by patch",
                    "Each patch predicted using only earlier patches. <b>floor</b> = the miss "
                    "that luck alone causes. A patch far above the floor for every method means "
                    "something happened that no input captures (for example a big item or rune "
@@ -625,7 +684,7 @@ def sec_game(gres, gp, imp, effects, cp):
     if not parts:
         parts.append("<p class='muted'>Run train_game_model.py (without --skip-eval) to fill "
                      "this section.</p>")
-    return section("game", "7. Game model (who wins each game)",
+    return section("game", "8. Game model (who wins each game)",
                    "Tested on patches it never saw. AUC 0.5 = coin flip. In high elo, games are "
                    "close to coin flips, so 0.52-0.56 is normal and rises with more games.",
                    "".join(parts))
@@ -652,13 +711,13 @@ def sec_data(cp):
     try:
         import train_change_model as tcm
         c2, X = tcm.build_features(cp)
-        rel = [c for c in X.columns if c.startswith("rel_")]
+        rel = [c for c in c2.columns if c.startswith("chg_")]
         big = []
         for c in rel:
-            m = X[c].abs() >= tcm.MAX_REL - 1e-9
-            for i in X.index[m]:
+            m = c2[c].abs() >= tcm.MAX_REL - 1e-9
+            for i in c2.index[m]:
                 big.append({"patch": c2.at[i, "patch"], "champion": c2.at[i, "champion_id"],
-                            "number": c.replace("rel_", ""), "change": f"{X.at[i, c]:+.0%} (capped)",
+                            "number": c.replace("chg_", ""), "change": f"{c2.at[i, c]:+.0%} (capped)",
                             "changes that patch": int(c2.at[i, "n_changes"] or 0)})
         big = pd.DataFrame(big)
         if len(big):
@@ -675,7 +734,7 @@ def sec_data(cp):
                                  {"n_changes": "{:.0f}"}))
     except Exception as e:  # never let a data check break the report
         parts.append(note(f"Data checks skipped: {html.escape(str(e))}", "warn"))
-    return section("data", "8. Data checks",
+    return section("data", "9. Data checks",
                    "Problems in the inputs show up as model mistakes, so check these first "
                    "when something looks odd.", "".join(parts))
 
@@ -742,6 +801,8 @@ def build(dir_training, dir_models, out):
     n_games = int(cp["games"].sum() / 10)
     patches_with = int((cp.groupby("patch")["games"].sum() > 0).sum())
     on = f"{int(cres['alpha'].apply(np.isfinite).sum())} of {len(cres)}" if cres is not None else "-"
+    bold_txt = (f"{np.nanmean(cres['direction']) * 100:.0f}%"
+                if cres is not None and "direction" in cres and cres["direction"].notna().any() else "-")
     auc_txt = f"{gres['numbers AUC'].mean():.3f}" if gres is not None and "numbers AUC" in gres else "-"
     cards = "".join([
         card("Games", f"{n_games:,}", f"{patches_with} patches with games"),
@@ -750,15 +811,17 @@ def build(dir_training, dir_models, out):
         card("Model's own error", f"{s_all['own error']:.2f} pts", "after removing luck"),
         card("Changed champions", f"{s_ch['miss']:.2f} pts" if s_ch is not None else "-",
              f"own error {s_ch['own error']:.2f}" if s_ch is not None else ""),
-        card("Change model on", on, "patches where it beat 'no effect'"),
+        card("Best guess on", on, "patches where it beat 'no effect'"),
+        card("Bold direction right", bold_txt, "changed champions, 100+ games (50% = coin flip)"),
         card("Game model AUC", auc_txt, "0.5 = coin flip"),
     ])
     nav = "".join(f"<a href='#{a}'>{t}</a>" for a, t in [
         ("luck", "Luck or mistakes"), ("where", "Where"), ("champs", "Champions"),
-        ("calib", "Calibration"), ("why", "Why"), ("patches", "Per patch"),
+        ("calib", "Calibration"), ("bold", "Bold picks"), ("why", "What it learned"),
+        ("patches", "Per patch"),
         ("game", "Game model"), ("data", "Data checks")])
     body = "".join([sec_luck(d), sec_breakdown(d, None), sec_champions(d), sec_calibration(d),
-                    sec_why(d, weights), sec_patches(cres, bres), sec_game(gres, gp, imp, effects, cp),
+                    sec_bold(d, cres), sec_why(d, weights), sec_patches(cres, bres), sec_game(gres, gp, imp, effects, cp),
                     sec_data(cp)])
     page = (f"<!doctype html><html lang='en'><head><meta charset='utf-8'>"
             f"<meta name='viewport' content='width=device-width,initial-scale=1'>"
