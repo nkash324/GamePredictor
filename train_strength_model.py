@@ -7,6 +7,8 @@ Built the way a game works:
      role into a single strength score. The same network scores all 10 champions, so what
      it learns about "+10% AP ratio on a mid mage" comes from EVERY game with every
      champion, not only the few champions that were changed.
+     Besides the numbers themselves, the network sees how each number changed since the
+     champion's first patch in the data (scaled so balance changes stand out).
      A small per-champion correction on top catches what the numbers miss (it has to
      earn its size from the games, so most champions stay near 0).
   2. LANES: a second small network scores each lane matchup (top vs top, ...).
@@ -83,7 +85,7 @@ def auc(y, p):
     ranks = np.empty(len(p))
     ranks[order] = np.arange(1, len(p) + 1)
     pos = y == 1
-    n1, n0 = pos.sum(), (~pos).sum()
+    n1, n0 = float(pos.sum()), float((~pos).sum())   # floats: no overflow on big groups
     return float((ranks[pos].sum() - n1 * (n1 + 1) / 2) / (n1 * n0)) if n1 and n0 else np.nan
 
 
@@ -118,7 +120,23 @@ class Data:
         self.mu, self.sd = X.mean(0), X.std(0)
         self.sd[self.sd == 0] = 1
         Z = np.clip((X - self.mu) / self.sd, -5, 5).astype(np.float32)
-        self.V = np.vstack([np.zeros((1, len(feats)), np.float32), Z])   # row 0 = unknown
+        # CHANGE inputs: each champion's numbers relative to their first patch in the data,
+        # rescaled so that typical balance changes are about +-1. Without these, a 10% nerf
+        # is a tiny wiggle next to the huge differences BETWEEN champions, and the network
+        # barely notices it.
+        order = self.vec["patch"].map(pkey)
+        first = order.groupby(self.vec["champ_key"]).transform("min") == order
+        ref = pd.DataFrame(Z[first.to_numpy()], index=self.vec.loc[first, "champ_key"].astype(int))
+        ref = ref[~ref.index.duplicated()]
+        self.zfirst = {int(k): ref.loc[k].to_numpy(np.float32) for k in ref.index}
+        Dl = Z - np.stack([self.zfirst[int(k)] for k in self.vec["champ_key"]])
+        nz = np.abs(Dl) > 1e-6
+        self.dsd = np.array([Dl[nz[:, j], j].std() if nz[:, j].sum() > 5 else 1.0
+                             for j in range(Z.shape[1])], dtype=np.float32)
+        self.dsd[~np.isfinite(self.dsd) | (self.dsd < 1e-6)] = 1.0
+        Dl = np.clip(Dl / self.dsd, -5, 5).astype(np.float32)
+        full = np.hstack([Z, Dl])
+        self.V = np.vstack([np.zeros((1, full.shape[1]), np.float32), full])   # row 0 = unknown
         self.row = {(p, int(k)): i + 1 for i, (p, k) in
                     enumerate(zip(self.vec["patch"], self.vec["champ_key"]))}
         self.names = dict(zip(self.vec["champ_key"].astype(int), self.vec["champion_id"]))
@@ -135,10 +153,13 @@ class Data:
         self.games = g.reset_index(drop=True)
         self.platforms = sorted(self.games["platform"].dropna().unique())
 
-    def standardize(self, raw_row):
+    def standardize(self, raw_row, key):
+        """Full input row (numbers + change-since-first-patch) for a champion's raw numbers."""
         x = np.asarray(raw_row, np.float64)
         x = np.sign(x) * np.log1p(np.abs(x))
-        return np.clip((x - self.mu) / self.sd, -5, 5).astype(np.float32)
+        z = np.clip((x - self.mu) / self.sd, -5, 5).astype(np.float32)
+        d = np.clip((z - self.zfirst.get(int(key), z)) / self.dsd, -5, 5).astype(np.float32)
+        return np.concatenate([z, d])
 
     def arrays(self, g, patch_override=None):
         """Number-table rows (n,10), champion codes (n,10), context (n,c), outcome (n,)."""
@@ -286,12 +307,11 @@ def why_change(torch, model, D, key, old_patch, new_patch, role, device, top=3):
     changed = np.flatnonzero(np.abs(raw_n - raw_o) > 1e-9 * np.maximum(1, np.abs(raw_o)))
     if not len(changed):
         return 0.0, ""
-    zo, zn = D.standardize(raw_o), D.standardize(raw_n)
-    rows = [zo, zn]
+    rows = [D.standardize(raw_o, key), D.standardize(raw_n, key)]
     for j in changed:
-        z = zo.copy()
-        z[j] = zn[j]
-        rows.append(z)
+        mixed = raw_o.copy()
+        mixed[j] = raw_n[j]                        # only this one number changed
+        rows.append(D.standardize(mixed, key))
     x = torch.from_numpy(np.stack(rows)).to(device)
     r = torch.full((len(rows),), POSITIONS.index(role), dtype=torch.long, device=device)
     with torch.no_grad():

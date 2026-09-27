@@ -103,6 +103,8 @@ which opens in your browser when it's done). It stops with a clear message if an
 - `python run_pipeline.py --skip-fetch` skips checking CommunityDragon for new patches.
 - `python run_pipeline.py --only-data` updates the data and tables, but not the model.
 - `update_model.bat --max-ram-gb 6` changes the RAM limit (see below).
+- `update_model.bat --skip-data` reuses the existing training tables: skips checking for new
+  patches and rebuilding the tables (saves a few minutes; new games since then aren't used).
 
 ### Sharing results
 

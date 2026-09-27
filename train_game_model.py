@@ -354,7 +354,7 @@ def auc(y, p):
     ranks = np.empty(len(p))
     ranks[order] = np.arange(1, len(p) + 1)
     pos = y == 1
-    n1, n0 = pos.sum(), (~pos).sum()
+    n1, n0 = float(pos.sum()), float((~pos).sum())   # floats: no overflow on big groups
     return float((ranks[pos].sum() - n1 * (n1 + 1) / 2) / (n1 * n0)) if n1 and n0 else np.nan
 
 

@@ -27,6 +27,7 @@ Usage:
   python run_pipeline.py --gpu           use the graphics card where possible
   python run_pipeline.py --test-last 5   only test the latest 5 patches (faster)
   python run_pipeline.py --skip-strength / --skip-game-model   leave one model out
+  python run_pipeline.py --skip-data     reuse the existing training tables (no new games)
 (or double-click update_model.bat)
 """
 
@@ -139,6 +140,8 @@ def main(argv=None):
     ap.add_argument("--test-last", type=int, default=None,
                     help="only test the latest N patches (game model default: all; "
                          "strength model default: 6)")
+    ap.add_argument("--skip-data", action="store_true",
+                    help="reuse the existing training tables (skip steps 1-3)")
     ap.add_argument("--skip-game-model", action="store_true")
     ap.add_argument("--skip-strength", action="store_true")
     ap.add_argument("--max-ram-gb", type=float, default=memlimit.DEFAULT_GB,
@@ -150,11 +153,16 @@ def main(argv=None):
             sys.exit(f"{f} not found - run this from the project folder.")
 
     steps = []
-    if not args.skip_fetch:
-        steps.append(("Ability numbers for new patches (CommunityDragon)",
-                      ["fetch_ability_data.py"], True))
-    steps.append(("Champion / item numbers and patch changes", ["build_patch_state.py"], False))
-    steps.append(("Training tables", ["build_training_tables.py"], False))
+    if args.skip_data:
+        for f in ("games.parquet", "champion_patch.parquet"):
+            if not os.path.exists(os.path.join(HERE, "training", f)):
+                sys.exit(f"training/{f} not found - run once without --skip-data first.")
+    else:
+        if not args.skip_fetch:
+            steps.append(("Ability numbers for new patches (CommunityDragon)",
+                          ["fetch_ability_data.py"], True))
+        steps.append(("Champion / item numbers and patch changes", ["build_patch_state.py"], False))
+        steps.append(("Training tables", ["build_training_tables.py"], False))
     if not args.only_data:
         steps.append(("Baselines", ["baselines.py"], False))
         steps.append(("Patch-change model", ["train_change_model.py"], False))
