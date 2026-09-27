@@ -1,0 +1,70 @@
+patch,item_id,cost_change,stat_pct,passive_pct,n_passive_changed,flags_gained,flags_lost,changes,name,main_users,n_champs_20pct
+15.19,3107,0.0,0.0,-0.1875,2,,,healmin 200->150; healmax 400->350,Redemption,,0
+15.21,1055,0.0,-0.25,0.0,0,,,PercentLifeStealMod 0.03->0,Doran's Blade,Aphelios 65%; Ashe 63%; Ezreal 63%; Jinx 62%; Corki 60%; Jhin 60%,45
+15.23,3068,0.0,0.0,0.5,1,,,monstermod 0.6->1,Sunfire Aegis,Zac 69%; Malphite 54%; Amumu 46%; Ornn 45%; Sion 42%; Rammus 34%,6
+16.1,2502,0.0,0.017857142857142856,0.0,0,,,FlatArmorMod 25->50; FlatSpellBlockMod 25->0,Unending Despair,Sion 50%; Sejuani 45%; Ornn 42%; KSante 34%; Skarner 31%; Chogath 27%,7
+16.1,3031,50.0,0.08695652173913043,0.0,0,,,cost 3450->3500; FlatPhysicalDamageMod 65->75,Infinity Edge,Samira 83%; Caitlyn 80%; Tristana 79%; Aphelios 78%; Jinx 67%; Nilah 64%,25
+16.1,3032,100.0,-0.05,0.0,0,,,cost 3000->3100; FlatPhysicalDamageMod 55->50; PercentAttackSpeedMod 0.35->0.4,Yun Tal Wildarrows,Zeri 79%; Jinx 68%; Tristana 65%; Xayah 38%; Sivir 32%; Nilah 32%,7
+16.1,3033,-300.0,0.09090909090909091,0.0,0,,,cost 3300->3000,Mortal Reminder,Gangplank 27%; Sivir 21%; Graves 19%; Nilah 18%; Kindred 18%; Xayah 16%,2
+16.1,3036,200.0,-0.06451612903225806,0.0,0,,,cost 3100->3300,Lord Dominik's Regards,Draven 39%; Akshan 37%; Aphelios 34%; Nilah 33%; Graves 33%; Samira 33%,14
+16.1,3107,0.0,0.028695652173913042,0.0,0,,,FlatHPPoolMod 200->0; FlatMagicDamageMod 0->30,Redemption,Rakan 71%; Renata 68%; Soraka 60%; Thresh 56%; Lulu 55%; Karma 53%,21
+16.1,3170,-500.0,0.3333333333333333,0.5,1,,,cost 1500->1000; slowresisttooltip 0.25->0.4,Swiftmarch,Jhin 26%; Singed 24%; Senna 24%; Janna 21%; MissFortune 21%; Kayle 20%,6
+16.1,3171,-500.0,0.3142857142857143,0.5,1,,,cost 1400->900; FlatMovementSpeedMod 50->45; summonerhaste 10->20,Crimson Lucidity,Hecarim 33%; Karma 30%; Ezreal 29%; Ivern 29%; Nami 28%; Zilean 27%,13
+16.1,3172,-500.0,0.3921875,0.0,0,heal,,cost 1600->1100; PercentLifeStealMod 0->0.05; FlatMovementSpeedMod 50->45,Gunmetal Greaves,Kalista 27%; Sivir 24%; Tristana 24%; Xayah 24%; Kaisa 23%; Tryndamere 22%,12
+16.1,3173,-500.0,0.2,0.375,2,,,cost 1750->1250; FlatMovementSpeedMod 50->45; FlatSpellBlockMod 35->30; shieldduration 4->5; shieldamount 0.04->0.07,Chainlaced Crushers,Amumu 14%; LeeSin 13%; Briar 12%; Vi 12%; Irelia 12%; RekSai 12%,0
+16.1,3174,-500.0,0.2,0.375,2,,,cost 1700->1200; FlatArmorMod 40->35; FlatMovementSpeedMod 50->45; shieldduration 4->5; shieldamount 0.04->0.07,Armored Advance,Olaf 22%; Renekton 19%; Braum 19%; Irelia 19%; Ornn 19%; Illaoi 18%,1
+16.1,3175,-500.0,0.275,0.0,0,,,cost 1600->1100; FlatMovementSpeedMod 50->45,Spellslinger's Shoes,Ziggs 34%; Karthus 34%; Xerath 32%; Elise 32%; Evelynn 31%; Heimerdinger 30%,23
+16.1,3179,300.0,-0.05,0.2,1,truedamage,,cost 2500->2800; FlatPhysicalDamageMod 55->60; lethalityamount 15->18,Umbral Glaive,Pyke 85%; Pantheon 21%; Qiyana 6%; Khazix 4%; MissFortune 3%; Senna 3%,2
+16.1,3508,0.0,-0.0603448275862069,0.5,1,,,FlatPhysicalDamageMod 60->55; manarefundratio 0.1->0.15,Essence Reaver,Lucian 95%; Smolder 91%; Sivir 66%; Xayah 57%; Corki 4%; MissFortune 3%,4
+16.1,4628,-50.0,-0.34545454545454546,0.0,0,,,cost 2750->2700; FlatMagicDamageMod 125->75,Horizon Focus,Vladimir 72%; Ziggs 51%; Orianna 49%; Velkoz 47%; Xerath 46%; Mel 41%,9
+16.1,6610,0.0,0.056451612903225805,-0.22499999403953552,2,,,FlatPhysicalDamageMod 40->45; cooldown 8->10; critmodifier 1->0.8,Sundered Sky,XinZhao 85%; Riven 82%; LeeSin 81%; Vi 77%; Aatrox 72%; MonkeyKing 68%,13
+16.2,2512,0.0,0.04716981132075472,0.2833333412806193,2,,,PercentAttackSpeedMod 0.4->0.45; bonustruedamage 0.1->0.15; critmodifier 0.75->0.8,Fiendhunter Bolts,Yunara 72%; Zeri 45%; Twitch 26%; Vayne 16%; Nilah 12%; Kaisa 11%,3
+16.2,2523,0.0,0.0625,-0.14285714285714285,1,,,FlatPhysicalDamageMod 50->55; maxrange 700->600,Hexoptics C44,Caitlyn 13%; Zeri 12%; Jinx 10%; Senna 4%; Tristana 4%; Twitch 3%,0
+16.2,2524,300.0,-0.15,0.0,0,,,cost 2000->2300,Bandlepipes,Braum 81%; Nautilus 66%; Rell 57%; Thresh 57%; Alistar 57%; Leona 57%,17
+16.2,3508,150.0,-0.11206896551724138,0.0,0,,,cost 2900->3050; FlatPhysicalDamageMod 55->50,Essence Reaver,Lucian 98%; Smolder 97%; Gangplank 92%; Sivir 83%; Xayah 74%; Corki 60%,9
+16.3,2510,0.0,0.04306451612903226,0.0,0,,,FlatHPPoolMod 300->350,Dusk and Dawn,Ekko 94%; Gwen 84%; Volibear 83%; Diana 81%; Kayle 62%; Varus 57%,13
+16.3,2517,100.0,0.025,0.0,0,,,cost 3000->3100; FlatPhysicalDamageMod 60->65,Endless Hunger,Hecarim 48%; Ezreal 28%; Irelia 24%; Ambessa 14%; Riven 14%; Zaahen 13%,3
+16.3,2522,-300.0,0.0967741935483871,0.0,0,,,cost 3100->2800,Actualizer,Ryze 55%; Cassiopeia 6%; Anivia 4%; Veigar 3%; Orianna 1%; Kassadin 1%,1
+16.3,3173,0.0,0.0,0.14285711244660995,1,,,shieldamount 0.07->0.08,Chainlaced Crushers,Galio 46%; Akshan 39%; Ryze 35%; Kassadin 31%; Azir 24%; TwistedFate 21%,6
+16.3,3174,0.0,0.0,0.14285711244660995,1,,,shieldamount 0.07->0.08,Armored Advance,Kassadin 24%; Galio 23%; Akshan 20%; Irelia 14%; Ryze 10%; Swain 8%,2
+16.4,2523,0.0,0.0,0.08333333333333333,2,,,maxrange 600->500; duration 6->8,Hexoptics C44,Caitlyn 35%; Jinx 24%; Tristana 11%; Draven 11%; Kindred 11%; Senna 10%,2
+16.5,3190,0.0,0.0,0.45,1,,,shieldmintooltip 200->290,Locket of the Iron Solari,Thresh 74%; Nautilus 66%; Leona 63%; Blitzcrank 63%; Braum 62%; Renata 58%,12
+16.5,6697,-200.0,0.06666666666666667,0.0,0,,,cost 3000->2800,Hubris,Draven 11%; Kayn 11%; Qiyana 9%; Talon 6%; Graves 6%; Smolder 5%,0
+16.6,6609,-100.0,0.03225806451612903,0.0,0,,,cost 3100->3000,Chempunk Chainsword,Yorick 2%; Pantheon 2%; Urgot 2%; Illaoi 2%; Senna 2%; Sett 1%,0
+16.9,2510,0.0,-0.1479032258064516,0.0,0,heal,,FlatHPPoolMod 350->300; PercentAttackSpeedMod 0.25->0.2; FlatMagicDamageMod 70->60,Dusk and Dawn,Ekko 81%; Gwen 75%; Volibear 71%; Kayle 67%; Shyvana 66%; Kaisa 45%,13
+16.9,3087,300.0,0.1574074074074074,0.27941176470588236,2,,,cost 2700->3000; FlatPhysicalDamageMod 45->40; FlatMagicDamageMod 0->45; bouncedelay 0.05->0; nonchampchaindamage 85->90,Statikk Shiv,Akshan 56%; Senna 43%; Quinn 22%; Zeri 14%; Caitlyn 3%; Kaisa 3%,3
+16.9,6696,0.0,0.0,-0.3333333333333333,1,,,ultimaterefundbase 15->10,Axiom Arc,Naafiri 64%; Riven 64%; Ambessa 46%; Zed 38%; Kayn 37%; Talon 30%,7
+16.9,6697,0.0,-0.0625,0.15,2,,,FlatPhysicalDamageMod 60->55; adperstatue 2->3; baseadbonus 15->12,Hubris,Graves 86%; Naafiri 67%; Draven 61%; Kayn 54%; MissFortune 52%; Qiyana 48%,14
+16.9,6699,-100.0,0.03333333333333333,-0.4444444444444444,1,,"dash,stealth",cost 3000->2900; lethalityamount 18->10,Voltaic Cyclosword,Zed 59%; Aatrox 29%; Kayn 21%; Shaco 16%; Naafiri 11%; Kled 10%,3
+16.10,1086,0.0,0.175,0.0,0,,,FlatPhysicalDamageMod 6->8,Doran's Bow,Zeri 34%; Yasuo 32%; Ashe 32%; Yone 32%; KogMaw 29%; Kalista 27%,12
+16.10,1120,0.0,0.1779999999999998,0.0,0,,,FlatHPPoolMod 110->140,Doran's Helm,KSante 39%; Ornn 17%; Sion 9%; DrMundo 8%; Yorick 8%; Shen 7%,1
+16.10,3008,50.0,-0.05263157894736842,0.05000000931322596,2,,,cost 950->1000; maxstacks 6->10; omnivampontakedown 0.01->0.006,Gluttonous Greaves,Shyvana 39%; Rengar 35%; Hecarim 32%; Olaf 32%; Gwen 27%; MasterYi 24%,7
+16.10,3100,0.0,0.02724137931034483,0.12499995343387196,1,,,PercentMovementSpeedMod 0.04->0.06; lichbaneapvalue 0.4->0.45,Lich Bane,Evelynn 92%; Nidalee 70%; TwistedFate 66%; Fizz 63%; Katarina 30%; Zoe 29%,8
+16.10,3168,50.0,-0.05263157894736842,0.05000000931322596,2,,,cost 950->1000; maxstacks 6->10; omnivampontakedown 0.01->0.006,Immortal Path,Akshan 55%; Zed 31%; Qiyana 30%; Katarina 28%; Ryze 25%; Naafiri 17%,5
+16.10,6699,100.0,-0.034482758620689655,0.0,0,,,cost 2900->3000,Voltaic Cyclosword,Zed 93%; Kayn 73%; Talon 72%; Qiyana 67%; Naafiri 63%; Khazix 52%,16
+16.11,3084,0.0,0.0,0.2500000465661298,1,,,damagetomaxhealthratio 0.08->0.1,Heartsteel,DrMundo 89%; TahmKench 61%; Sejuani 47%; Skarner 33%; Chogath 25%; Shen 12%,5
+16.11,3087,0.0,0.058333333333333334,0.0,0,,,FlatPhysicalDamageMod 40->45,Statikk Shiv,Teemo 75%; Senna 61%; Kalista 59%; Varus 55%; XinZhao 18%; Kaisa 15%,4
+16.11,3109,0.0,0.0,0.18333332650363515,2,,,allyhealingconversion 0.1->0.12; damageredirection 0.12->0.14,Knight's Vow,Thresh 36%; Braum 33%; Leona 29%; Nautilus 28%; Taric 23%; Rell 21%,6
+16.11,3190,0.0,0.08636363636363636,0.0,0,,,FlatArmorMod 25->30; FlatSpellBlockMod 25->30,Locket of the Iron Solari,Thresh 84%; Nautilus 78%; Leona 75%; Renata 75%; Braum 74%; Blitzcrank 68%,13
+16.11,4005,150.0,-0.022222222222222223,0.0,0,,,cost 2250->2400; FlatMagicDamageMod 60->65,Imperial Mandate,Nami 90%; Zilean 23%; Renata 17%; Yuumi 8%; Janna 6%; Morgana 5%,2
+16.11,6620,0.0,0.0,-0.14285709420028916,1,,,damagestoragerate 0.35->0.3,Echoes of Helia,Sona 78%; Seraphine 75%; Karma 72%; Milio 70%; Ivern 35%; Yuumi 20%,5
+16.13,1120,0.0,-0.10955555555555545,0.0,0,,,FlatHPPoolMod 140->150; FlatSpellBlockMod 10->8; FlatArmorMod 10->8,Doran's Helm,KSante 60%; Senna 57%; Ornn 35%; Yorick 34%; DrMundo 31%; Sion 26%,7
+16.13,4005,0.0,-0.041666666666666664,0.25000001552204326,2,,,FlatMagicDamageMod 65->60; damageamp 0.06->0.07; immobilizingabilityah 15->20,Imperial Mandate,Galio 38%; Renata 35%; Nami 29%; Seraphine 27%; Lissandra 22%; Shaco 21%,7
+16.14,2525,100.0,-0.04,0.0,0,,,cost 2500->2600,Protoplasm Harness,Nasus 53%; Singed 45%; Leona 30%; Skarner 28%; Shen 28%; Sejuani 28%,9
+16.14,3152,0.0,-0.025094339622641508,-0.25,1,,,FlatHPPoolMod 300->350; FlatMagicDamageMod 70->60; cooldown 40->50,Hextech Rocketbelt,Sylas 93%; Neeko 89%; Kennen 78%; Vladimir 75%; Nidalee 59%; Annie 54%,24
+16.14,3168,0.0,0.0,-0.20000003973642866,2,,,damagemod 0.05->0.04; healingmod 0.15->0.12,Immortal Path,Akshan 45%; Riven 26%; Zed 16%; Qiyana 16%; Katarina 14%; Irelia 13%,2
+16.15,2520,-200.0,0.0625,0.0,0,,,cost 3200->3000,Bastionbreaker,Zed 17%; Khazix 14%; Jayce 9%; Talon 4%; Qiyana 3%; Kayn 2%,0
+16.15,3032,-100.0,0.07258064516129033,0.0,0,,,cost 3100->3000; PercentAttackSpeedMod 0.4->0.45,Yun Tal Wildarrows,Sivir 32%; Xayah 25%; Tristana 18%; Nilah 14%; Zeri 13%; Twitch 8%,2
+16.16,3006,0.0,0.11363636363636363,0.0,0,,,PercentAttackSpeedMod 0.25->0.3,Berserker's Greaves,Tryndamere 57%; Garen 54%; Yone 47%; Vayne 34%; Yasuo 22%; Shaco 14%,5
+16.16,3053,0.0,0.0,0.11111114054550437,1,,,adtoad 0.45->0.5,Sterak's Gage,Urgot 75%; Illaoi 49%; Camille 38%; Gnar 36%; Darius 29%; Renekton 26%,8
+16.16,3068,100.0,-0.037037037037037035,-0.09166667196485698,4,,,cost 2700->2800; hpratioperticktooltiponly 1->1.5; stackduration 1->0; minionmod 0.6->0.5; monstermod 1->0.8,Sunfire Aegis,Zac 68%; Malphite 40%; Amumu 34%; Rammus 28%; Ornn 24%; Sion 13%,5
+16.16,3071,0.0,0.058333333333333334,0.0,0,,,FlatPhysicalDamageMod 40->45,Black Cleaver,Urgot 94%; Senna 80%; Illaoi 66%; Renekton 57%; XinZhao 56%; Smolder 56%,19
+16.16,3085,0.0,0.014905660377358491,0.0,0,,,PercentMovementSpeedMod 0.04->0.05,Runaan's Hurricane,Zeri 47%; Jinx 28%; Twitch 25%; Yunara 19%; KogMaw 15%; Aphelios 9%,3
+16.16,3172,0.0,0.11363636363636363,0.0,0,,onhit,PercentAttackSpeedMod 0.4->0.45,Gunmetal Greaves,Yasuo 45%; Yone 41%; Tryndamere 11%; Tristana 7%; Akshan 4%; Kalista 3%,2
+16.16,3173,0.0,-0.072,0.0,0,,,FlatSpellBlockMod 30->25,Chainlaced Crushers,Galio 34%; Kassadin 32%; Ryze 27%; Akshan 16%; Irelia 14%; Katarina 13%,3
+16.16,6610,0.0,0.04306451612903226,-0.3333333333333333,1,,,FlatHPPoolMod 400->450; missinghealthheal 0.06->0.04,Sundered Sky,LeeSin 81%; XinZhao 79%; JarvanIV 75%; Aatrox 73%; Camille 73%; Vi 70%,12
+16.16,6692,0.0,0.0,0.09374999068677439,2,,,meleeshieldadratio 0.4->0.5; meleebaseshield 160->150,Eclipse,LeeSin 73%; Ambessa 60%; Renekton 57%; Pantheon 23%; Zed 22%; Riven 18%,5
+16.17,3170,0.0,0.0,-0.37500000931322564,1,,,slowresisttooltip 0.4->0.25,Swiftmarch,TwistedFate 51%; Cassiopeia 37%; Anivia 23%; Kayle 21%; Ryze 14%; Syndra 9%,4
+16.17,6610,0.0,-0.09951612903225807,0.0,0,,,FlatHPPoolMod 450->400; FlatPhysicalDamageMod 45->40,Sundered Sky,LeeSin 72%; JarvanIV 72%; XinZhao 62%; Vi 62%; MonkeyKing 61%; Aatrox 54%,12
+16.18,3124,0.0,0.0,0.3333333333333333,1,,,buffduration 3->4,Guinsoo's Rageblade,Kalista 88%; Kaisa 82%; KogMaw 52%; Varus 51%; Belveth 39%; MasterYi 39%,7
+16.19,3865,0.0,-0.20024999999999998,0.0,0,,,FlatHPPoolMod 30->0,World Atlas,,0
