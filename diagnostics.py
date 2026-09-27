@@ -93,7 +93,8 @@ def group_table(d, by, order=None):
 # --------------------------------------------------------------------------- #
 # SVG charts (no extra libraries needed)
 # --------------------------------------------------------------------------- #
-W, H, PAD = 560, 300, 58
+# every chart in the report is the same size and shape (square), so they're easy to compare
+W, H, PAD = 460, 460, 58
 
 
 def _scale(lo, hi, a, b):
@@ -101,7 +102,8 @@ def _scale(lo, hi, a, b):
     return lambda v: a + (v - lo) / span * (b - a)
 
 
-def _axes(xlo, xhi, ylo, yhi, xlab, ylab, xt=None, yt=None, fmt="{:g}"):
+def _axes(xlo, xhi, ylo, yhi, xlab, ylab, xt=None, yt=None, fmt="{:g}", w=None, h=None):
+    W, H = (w or globals()["W"]), (h or globals()["H"])
     sx, sy = _scale(xlo, xhi, PAD, W - 12), _scale(ylo, yhi, H - PAD + 10, 12)
     out = [f'<line x1="{PAD}" y1="{H - PAD + 10}" x2="{W - 12}" y2="{H - PAD + 10}" class="ax"/>',
            f'<line x1="{PAD}" y1="12" x2="{PAD}" y2="{H - PAD + 10}" class="ax"/>']
@@ -119,20 +121,25 @@ def _axes(xlo, xhi, ylo, yhi, xlab, ylab, xt=None, yt=None, fmt="{:g}"):
     return sx, sy, out
 
 
-def svg_wrap(parts):
-    return f'<svg viewBox="0 0 {W} {H}" class="chart" role="img">{"".join(parts)}</svg>'
+def svg_wrap(parts, w=None, h=None):
+    return (f'<svg viewBox="0 0 {w or W} {h or H}" class="chart{" sq" if w else ""}" role="img">'
+            f'{"".join(parts)}</svg>')
 
 
-def svg_scatter(x, y, size, labels, xlab, ylab, diag=True, lim=None):
+def svg_scatter(x, y, size, labels, xlab, ylab, diag=True, lim=None, same_scale=True):
     x, y, size = np.asarray(x, float), np.asarray(y, float), np.asarray(size, float)
     if not len(x):
         return "<p class='muted'>No data yet.</p>"
-    m = float(np.nanpercentile(np.abs(np.concatenate([x, y])), 99)) if lim is None else lim
-    m = max(math.ceil(m), 1)
-    lo, hi = -m, m
-    x, y = np.clip(x, lo, hi), np.clip(y, lo, hi)
-    ticks = np.linspace(lo, hi, 5)
-    sx, sy, parts = _axes(lo, hi, lo, hi, xlab, ylab, xt=ticks, yt=ticks, fmt="{:+.0f}")
+    if same_scale:
+        m = float(np.nanpercentile(np.abs(np.concatenate([x, y])), 99)) if lim is None else lim
+        mx = my = max(math.ceil(m), 1)
+    else:          # different units on the two axes: each axis fits its own data
+        mx = max(math.ceil(float(np.nanpercentile(np.abs(x), 99))), 1)
+        my = max(math.ceil(float(np.nanpercentile(np.abs(y), 99))), 1)
+    x, y = np.clip(x, -mx, mx), np.clip(y, -my, my)
+    lo, hi = -mx, mx
+    sx, sy, parts = _axes(-mx, mx, -my, my, xlab, ylab, xt=np.linspace(-mx, mx, 5),
+                          yt=np.linspace(-my, my, 5), fmt="{:+.0f}")
     if diag:
         parts.append(f'<line x1="{sx(lo):.1f}" y1="{sy(lo):.1f}" x2="{sx(hi):.1f}" '
                      f'y2="{sy(hi):.1f}" class="diag"/>')
@@ -185,18 +192,22 @@ def svg_bars(labels, values, xlab, fmt="{:.1f}", highlight=None):
     if not len(values):
         return "<p class='muted'>No data yet.</p>"
     n = len(values)
-    h = max(H, 22 * n + 40)
+    h = H                                   # same size as every other chart
+    row = (h - 40) / max(n, 1)              # rows shrink to fit
+    bar_h = max(min(row * 0.72, 16), 3)
     vmax = max(max(values), 1e-9)
-    left = 230
+    left = 190
     parts = []
     for i, (lab, v) in enumerate(zip(labels, values)):
-        y = 14 + i * 22
-        wbar = (W - left - 60) * v / vmax
+        y = 10 + i * row
+        wbar = (W - left - 50) * v / vmax
         cls = "bar bad" if highlight and highlight(lab) else "bar"
-        parts.append(f'<text x="{left - 6}" y="{y + 12}" class="tk" text-anchor="end">'
-                     f'{html.escape(str(lab))[:34]}</text>')
-        parts.append(f'<rect x="{left}" y="{y}" width="{max(wbar, 1):.1f}" height="16" class="{cls}"/>')
-        parts.append(f'<text x="{left + wbar + 4:.1f}" y="{y + 12}" class="tk">{fmt.format(v)}</text>')
+        parts.append(f'<text x="{left - 6}" y="{y + bar_h - 2:.1f}" class="tk" text-anchor="end">'
+                     f'{html.escape(str(lab))[:28]}</text>')
+        parts.append(f'<rect x="{left}" y="{y:.1f}" width="{max(wbar, 1):.1f}" height="{bar_h:.1f}" '
+                     f'class="{cls}"/>')
+        parts.append(f'<text x="{left + wbar + 4:.1f}" y="{y + bar_h - 2:.1f}" class="tk">'
+                     f'{fmt.format(v)}</text>')
     parts.append(f'<text x="{(left + W) / 2}" y="{h - 6}" class="lb" text-anchor="middle">'
                  f'{html.escape(xlab)}</text>')
     return f'<svg viewBox="0 0 {W} {h}" class="chart" role="img">{"".join(parts)}</svg>'
@@ -306,7 +317,7 @@ def strength_bucket(r):
                   labels=["weak (<48%)", "a bit weak", "average", "a bit strong", "strong (>52%)"])
 
 
-STRENGTH_EFFECT_SCALE = 0.75   # strength model effects run ~2-3x too big; this scale fitted best
+STRENGTH_EFFECT_SCALE = None   # None = learn how much to trust the strength model's effects
 
 
 def svg_pred_actual(x, y, size, labels, bins=None, faint=False):
@@ -314,14 +325,19 @@ def svg_pred_actual(x, y, size, labels, bins=None, faint=False):
     x, y, size = (np.asarray(v, float) for v in (x, y, size))
     if len(x) < 3:
         return "<p class='muted'>No data yet.</p>"
-    xlo, xhi = np.nanpercentile(x, 0.5) - 0.4, np.nanpercentile(x, 99.5) + 0.4
-    ylo, yhi = np.nanpercentile(y, 0.5) - 0.6, np.nanpercentile(y, 99.5) + 0.6
-    xt = np.arange(math.ceil(xlo), math.floor(xhi) + 1, 1.0)
-    step = 2.0 if yhi - ylo > 8 else 1.0
-    yt = np.arange(math.ceil(ylo / step) * step, yhi + 1e-9, step)
-    sx, sy, parts = _axes(xlo, xhi, ylo, yhi, "predicted winrate %", "actual winrate %",
-                          xt=xt, yt=yt, fmt="{:.0f}")
-    lo, hi = max(xlo, ylo), min(xhi, yhi)
+    # SAME range and scale on both axes (square chart), so nothing is stretched: 1 point
+    # up = 1 point across. Predictions spread less than actual winrates (luck adds spread
+    # to the actual ones), so the cloud is naturally taller than wide.
+    lo = min(np.nanpercentile(x, 0.5), np.nanpercentile(y, 0.5)) - 0.5
+    hi = max(np.nanpercentile(x, 99.5), np.nanpercentile(y, 99.5)) + 0.5
+    mid, half = (lo + hi) / 2, max(hi - lo, 4.0) / 2
+    lo, hi = mid - half, mid + half
+    xlo, xhi, ylo, yhi = lo, hi, lo, hi
+    step = 2.0 if hi - lo > 8 else 1.0
+    ticks = np.arange(math.ceil(lo / step) * step, hi + 1e-9, step)
+    side = W
+    sx, sy, parts = _axes(lo, hi, lo, hi, "predicted winrate %", "actual winrate %",
+                          xt=ticks, yt=ticks, fmt="{:.0f}", w=side, h=side)
     parts.append(f'<line x1="{sx(lo):.1f}" y1="{sy(lo):.1f}" x2="{sx(hi):.1f}" y2="{sy(hi):.1f}" '
                  f'class="diag"><title>perfect prediction</title></line>')
     keep = (x >= xlo) & (x <= xhi) & (y >= ylo) & (y <= yhi)
@@ -338,12 +354,13 @@ def svg_pred_actual(x, y, size, labels, bins=None, faint=False):
                          f'y2="{sy(by + 2 * be):.1f}" class="eb"/>')
             parts.append(f'<circle cx="{sx(bx):.1f}" cy="{sy(by):.1f}" r="5" class="pt2"><title>'
                          f'predicted {bx:.2f}%, actual {by:.2f}% (+-{2 * be:.2f})</title></circle>')
-    else:     # trend line (games-weighted fit)
+    else:     # trend line (games-weighted fit), over the range of the predictions
         w = np.sqrt(size)
         b1, b0 = np.polyfit(x, y, 1, w=w)
-        parts.append(f'<line x1="{sx(xlo):.1f}" y1="{sy(b0 + b1 * xlo):.1f}" x2="{sx(xhi):.1f}" '
-                     f'y2="{sy(b0 + b1 * xhi):.1f}" class="trend"><title>trend</title></line>')
-    return svg_wrap(parts)
+        x0, x1 = np.nanmin(x), np.nanmax(x)
+        parts.append(f'<line x1="{sx(x0):.1f}" y1="{sy(b0 + b1 * x0):.1f}" x2="{sx(x1):.1f}" '
+                     f'y2="{sy(b0 + b1 * x1):.1f}" class="trend"><title>trend</title></line>')
+    return svg_wrap(parts, side, side)
 
 
 def prediction_table(d, strength_det):
@@ -357,8 +374,13 @@ def prediction_table(d, strength_det):
         s["patch"] = s["patch"].astype(str)
         m = m.merge(s, on=["patch", "champion_id"], how="left")
         has = m["effect"].notna() & (m["changed"] == 1)
-        m.loc[has, "effect_used"] = STRENGTH_EFFECT_SCALE * m.loc[has, "effect"]
-        source = f"strength model x{STRENGTH_EFFECT_SCALE:g}"
+        scale = STRENGTH_EFFECT_SCALE
+        if scale is None:     # how big the strength model's effects turn out, on average
+            t = m[has]
+            den = float(np.sum(t["games"] * t["effect"] ** 2))
+            scale = float(np.clip(np.sum(t["games"] * t["effect"] * t["actual"]) / den, 0, 1)) if den > 0 else 0.0
+        m.loc[has, "effect_used"] = scale * m.loc[has, "effect"]
+        source = f"strength model effects x{scale:.2f}"
     m["final_pred"] = m["base_pred"] + m["effect_used"]
     return m, source
 
@@ -971,7 +993,8 @@ def sec_items(d, cp, ichg, iusers):
                                    + (t["item_buff"] * 100).round(1).astype(str) + "% of cost, winrate "
                                    + (t["actual"] * 100).round(1).astype(str) + " pts",
                                    "how much their items changed (% of item cost)",
-                                   "winrate change beyond expected (pts)", diag=False)
+                                   "winrate change beyond expected (pts)", diag=False,
+                                   same_scale=False)
                      + "<p class='cap'>One dot per champion and patch (size = games). Dots rising "
                        "to the right = champions gain when their items get stronger.</p>")
     else:
@@ -1118,7 +1141,7 @@ td.bad{background:var(--bad);color:var(--badf)}
 .note{border-left:4px solid var(--acc);padding:8px 12px;margin:10px 0;background:var(--bg);border-radius:4px;font-size:14px}
 .note.warn{border-color:var(--warnf)}.note.good{border-color:var(--goodf)}
 code{font-size:12px;background:var(--bg);padding:1px 4px;border-radius:3px}
-.chart{width:100%;height:auto;max-width:640px}.ax{stroke:var(--mut)}.gr{stroke:var(--line)}
+.chart{display:block;width:100%;height:auto;max-width:460px;aspect-ratio:1/1}.ax{stroke:var(--mut)}.gr{stroke:var(--line)}
 .tk{fill:var(--mut);font-size:11px}.lb{fill:var(--fg);font-size:12px}
 .diag{stroke:var(--mut);stroke-dasharray:4 4}.zero{stroke:var(--line)}
 .pt{fill:var(--acc);fill-opacity:.45;stroke:var(--acc)}.pt2{fill:var(--acc)}.ptf{fill:var(--mut);fill-opacity:.25}

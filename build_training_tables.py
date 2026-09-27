@@ -335,6 +335,9 @@ GOLD_PER_STAT = {
 # passive numbers where LOWER is better for the owner (cooldowns, delays, costs)
 LOWER_IS_BUFF = re.compile(r"cooldown|\bcd\b|_cd|cd_|delay|cost|recharge", re.I)
 MAX_ITEM_REL = 0.5
+# a passive is only part of an item's value: a 20% stronger passive counts as the item being
+# about 7% stronger (on top of any stat / price change)
+PASSIVE_SHARE = 0.35
 
 
 def item_table(con):
@@ -363,7 +366,8 @@ def stat_gold(f):
 def item_changes(items):
     """Per patch and changed item: size of the change, as a share of the item's cost.
       stat_pct     (stat gold value change - price change) / old price
-      passive_pct  average change of the passive numbers that changed (+ = stronger)
+      passive_pct  average change of the passive numbers that changed (+ = stronger),
+                   times PASSIVE_SHARE (the passive's share of the item's value)
     """
     order = sorted(items, key=pkey)
     rows = []
@@ -394,7 +398,7 @@ def item_changes(items):
                 continue
             rows.append({"patch": cur, "item_id": iid, "cost_change": d_cost,
                          "stat_pct": stat_pct,
-                         "passive_pct": float(np.mean(rels)) if rels else 0.0,
+                         "passive_pct": PASSIVE_SHARE * float(np.mean(rels)) if rels else 0.0,
                          "n_passive_changed": len(rels),
                          "flags_gained": ",".join(flags_gained), "flags_lost": ",".join(flags_lost),
                          "changes": "; ".join(([f"cost {fp.get('gold_total', 0):g}->"
