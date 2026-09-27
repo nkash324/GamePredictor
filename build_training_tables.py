@@ -271,6 +271,42 @@ def build_games(con, vec, feats):
 # --------------------------------------------------------------------------- #
 # Champion x patch table
 # --------------------------------------------------------------------------- #
+# raw ability numbers where LOWER is better for the champion
+RAW_LOWER_IS_BUFF = re.compile(r"cooldown|\bcd|_cd|cd_|cost|mana|delay|casttime|windup|"
+                               r"recharge|lockout|selfslow|penalty", re.I)
+RAW_PVE = re.compile(r"monster|minion|jungle|creep|camp|epic", re.I)
+
+
+def raw_ability_changes(con):
+    """Score EVERY ability number that changed (not only the ones rolled into totals like
+    'total damage'): relative change, direction from the number's name (cooldowns, costs
+    and delays are buffs when lower; everything else when higher).
+      raw_buff      average directed change of numbers that affect fights (+ = stronger)
+      raw_pve_buff  same for jungle / minion numbers
+      raw_n         how many distinct numbers changed"""
+    try:
+        ch = pd.read_sql_query("""SELECT patch, entity_id AS champion_id, feature, old, new
+                                  FROM patch_changes WHERE entity = 'champion'
+                                  AND feature LIKE 'data\\_%' ESCAPE '\\'""", con)
+    except Exception:
+        return pd.DataFrame(columns=["patch", "champion_id", "raw_buff", "raw_pve_buff", "raw_n"])
+    if ch.empty:
+        return pd.DataFrame(columns=["patch", "champion_id", "raw_buff", "raw_pve_buff", "raw_n"])
+    # data_<slot>_<name>_<r1|rmax>  ->  one value per ability number (average of its ranks)
+    ch["value"] = ch["feature"].str.replace(r"_(r1|rmax)$", "", regex=True)
+    old, new = ch["old"].fillna(0.0), ch["new"].fillna(0.0)
+    rel = np.where(old.abs() > 1e-9, (new - old) / old.abs().where(old.abs() > 1e-9), np.sign(new - old) * 0.2)
+    ch["rel"] = np.clip(pd.Series(rel, index=ch.index).fillna(0.0), -0.5, 0.5)
+    ch.loc[ch["value"].str.contains(RAW_LOWER_IS_BUFF), "rel"] *= -1
+    v = ch.groupby(["patch", "champion_id", "value"])["rel"].mean().reset_index()
+    v["pve"] = v["value"].str.contains(RAW_PVE)
+    out = v.groupby(["patch", "champion_id"]).apply(lambda g: pd.Series({
+        "raw_buff": g.loc[~g["pve"], "rel"].mean() if (~g["pve"]).any() else 0.0,
+        "raw_pve_buff": g.loc[g["pve"], "rel"].mean() if g["pve"].any() else 0.0,
+        "raw_n": float(len(g))}), include_groups=False).reset_index()
+    return out
+
+
 def build_champion_patch(con, games, parts, vec, feats):
     kept = parts[parts["match_id"].isin(set(games["match_id"]))]
     wins = games.set_index("match_id")["blue_win"]
@@ -315,6 +351,9 @@ def build_champion_patch(con, games, parts, vec, feats):
                                 FROM patch_changes WHERE entity = 'champion'
                                 GROUP BY patch, entity_id""", con)
     cp = cp.merge(nchg, on=["patch", "champion_id"], how="left")
+    cp = cp.merge(raw_ability_changes(con), on=["patch", "champion_id"], how="left")
+    for c in ("raw_buff", "raw_pve_buff", "raw_n"):
+        cp[c] = cp[c].fillna(0.0)
     cp["n_changes"] = cp["n_changes"].fillna(0)
     cp.loc[cp["prev_patch"].isna(), "n_changes"] = np.nan
     cp["changed"] = (cp["n_changes"] > 0).astype(float).where(cp["n_changes"].notna())

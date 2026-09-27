@@ -116,7 +116,8 @@ class Data:
         # item changes per champion and patch (how much their usual items changed, and how
         # gold-efficient their items are), from build_training_tables.py
         cpath = os.path.join(train_dir, "champion_patch.parquet")
-        item_cols = ["item_stat_buff", "item_passive_buff", "item_changed_share", "item_efficiency"]
+        item_cols = ["item_stat_buff", "item_passive_buff", "item_changed_share", "item_efficiency",
+                     "raw_buff", "raw_pve_buff"]
         if os.path.exists(cpath):
             import pyarrow.parquet as pq
             have = [c for c in item_cols if c in pq.read_schema(cpath).names]

@@ -187,6 +187,12 @@ def build_features(cp):
         cp[f"chg_{f}"] = r                      # kept for the diagnostics data checks
 
     directed = [r * direction for r, direction in rel.values()]
+    # every raw ability number that changed, scored by direction (catches changes that
+    # don't show up in the totals above, e.g. a passive value or one ability's scaling)
+    if "raw_buff" in cp:
+        rb = cp["raw_buff"].fillna(0.0).copy()
+        rb[rework | not_changed] = 0.0
+        directed.append(rb)
     feats = {
         "buff_part": sum((x.clip(lower=0) for x in directed), zero),   # all buffs added up
         "nerf_part": sum((x.clip(upper=0) for x in directed), zero),   # all nerfs added up
@@ -205,6 +211,12 @@ def build_features(cp):
         v = v.copy()
         v[rework | not_changed] = 0.0
         feats[k] = v
+    if "raw_buff" in cp:
+        for c in ("raw_buff", "raw_pve_buff"):
+            v = cp[c].fillna(0.0).copy()
+            v[rework | not_changed] = 0.0
+            feats[c] = v
+        feats["raw_n"] = np.log1p(cp["raw_n"].fillna(0.0))
     feats["n_changes"] = np.log1p(cp["n_changes"].fillna(0))
     feats["rework"] = rework.astype(float)
     feats["prev_strength"] = (cp["recent_winrate"] - 0.5).fillna(0)
@@ -294,7 +306,7 @@ def feature_signs(cols):
         if c.startswith("rel_") and c[4:] in CHANGE_FEATURES:
             signs[c] = CHANGE_FEATURES[c[4:]]
         elif c in ("buff_part", "nerf_part", "dmg_power", "surv_power", "power_change",
-                   "item_stat_buff", "item_passive_buff"):
+                   "item_stat_buff", "item_passive_buff", "raw_buff", "raw_pve_buff"):
             signs[c] = 1
     return signs
 
