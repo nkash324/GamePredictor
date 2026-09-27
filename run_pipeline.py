@@ -4,6 +4,7 @@ run_pipeline.py  -  update everything, from new balance data to a retrained mode
 
 Runs, in order:
   1. fetch_ability_data.py     ability numbers for any new patch (instant if nothing is new)
+     fetch_item_data.py        item passive numbers + item tooltips for any new patch
   2. build_patch_state.py      champion / item numbers per patch + what changed
   3. build_training_tables.py  games table + champion-patch table
   4. baselines.py              simple predictions to compare against
@@ -28,6 +29,7 @@ Usage:
   python run_pipeline.py --test-last 5   only test the latest 5 patches (faster)
   python run_pipeline.py --skip-strength / --skip-game-model   leave one model out
   python run_pipeline.py --skip-data     reuse the existing training tables (no new games)
+  python run_pipeline.py --patch-charts 8   per-patch charts in the report (default 5)
 (or double-click update_model.bat)
 """
 
@@ -100,6 +102,7 @@ RESULT_FILES = [
     "training/diagnostics_breakdown.csv", "training/predicted_changes_*.csv",
     "training/game_test_predictions.parquet", "models/importance_numbers.csv",
     "training/strength_results.csv", "training/strength_predictions.csv",
+    "training/item_changes.csv", "training/item_users.csv",
     "training/strength_predicted_*.csv", "models/strength_corrections.csv",
 ]
 MAX_RESULT_MB = 25
@@ -142,6 +145,8 @@ def main(argv=None):
                          "strength model default: 6)")
     ap.add_argument("--skip-data", action="store_true",
                     help="reuse the existing training tables (skip steps 1-3)")
+    ap.add_argument("--patch-charts", type=int, default=5,
+                    help="predicted-vs-actual charts in the report for the latest N patches")
     ap.add_argument("--skip-game-model", action="store_true")
     ap.add_argument("--skip-strength", action="store_true")
     ap.add_argument("--max-ram-gb", type=float, default=memlimit.DEFAULT_GB,
@@ -161,6 +166,8 @@ def main(argv=None):
         if not args.skip_fetch:
             steps.append(("Ability numbers for new patches (CommunityDragon)",
                           ["fetch_ability_data.py"], True))
+            steps.append(("Item passives and tooltips for new patches",
+                          ["fetch_item_data.py"], True))
         steps.append(("Champion / item numbers and patch changes", ["build_patch_state.py"], False))
         steps.append(("Training tables", ["build_training_tables.py"], False))
     if not args.only_data:
@@ -178,7 +185,8 @@ def main(argv=None):
             cmd += ["--test-last", str(args.test_last)] if args.test_last is not None else []
             # optional: a problem here (e.g. PyTorch/GPU setup) doesn't stop the report
             steps.append(("Champion strength model", cmd, True))
-        steps.append(("Diagnostics report", ["diagnostics.py"], True))
+        steps.append(("Diagnostics report",
+                      ["diagnostics.py", "--patch-charts", str(args.patch_charts)], True))
 
     t_start = time.time()
     with open(LOG, "w", encoding="utf-8") as fh:

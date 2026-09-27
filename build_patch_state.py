@@ -14,8 +14,12 @@ Reads what fetch_balance_data.py (Data Dragon) and fetch_ability_data.py
           formulas - base at rank 1 and max rank, and AP / AD / HP ratios
         - crowd control: longest stun / root / knock-up / charm / ... and slows
         - totals across abilities (total damage, total AP ratio, ...)
+        - effect flags (yes/no): dash, shield, heal, stealth, anti-heal, true damage,
+          on-hit, tenacity/cleanse, unstoppable - read from the ability tooltips
   patch_item_features      (patch, item_id, feature, value)
-      Summoner's Rift items: price, stats, type tags, completed or component
+      Summoner's Rift items: price, stats, type tags, completed or component,
+      passive numbers from the game files (pv_..., from fetch_item_data.py) and the
+      same effect flags (from the item tooltips)
   patch_changes            (patch, prev_patch, entity, entity_id, feature, old, new, delta, pct)
       everything that changed from the previous patch - this is what the model
       learns from ("what did the balance team change?")
@@ -66,6 +70,35 @@ CC_WORDS = [("stun", "stun"), ("root", "root"), ("snare", "root"), ("knockup", "
             ("sleep", "sleep"), ("suppress", "suppress"), ("polymorph", "polymorph"),
             ("blind", "blind"), ("ground", "ground")]
 HARD_CC = {"stun", "root", "knockup", "charm", "fear", "taunt", "sleep", "suppress", "polymorph"}
+
+
+# effect flags: yes/no per champion and item, read from tooltip text. Kept to a few broad
+# mechanics on purpose - each needs enough changes across patches to be learnable.
+FLAGS = {
+    "dash": r"\bdash|\bblinks?\b|\bleaps?\b|\blunges?\b|\bjumps? to|teleports? to",
+    "shield": r"<shield>|\bshields?\b|\bshielded\b",
+    "heal": r"<healing>|<lifesteal>|\bheal(s|ing|ed)?\b|life ?steal|omnivamp",
+    "stealth": r"invisib|camouflag|stealth|untargetable",
+    "antiheal": r"grievous wounds",
+    "truedamage": r"<truedamage>|true damage",
+    "onhit": r"on-hit|<onhit>",
+    "tenacity": r"tenacity|cleanse|removes? all (crowd control|disables|debuffs)",
+    "unstoppable": r"unstoppable|immune to (crowd control|disables)|cannot be (slowed|stunned|displaced)",
+}
+FLAG_RE = {k: re.compile(v, re.I) for k, v in FLAGS.items()}
+
+
+def text_flags(text):
+    t = text or ""
+    return {f"flag_{k}": float(bool(rx.search(t))) for k, rx in FLAG_RE.items()}
+
+
+def champion_flags(con, version):
+    texts = defaultdict(list)
+    for cid, desc, tip in con.execute(
+            "SELECT champion_id, description, tooltip FROM abilities WHERE version = ?", (version,)):
+        texts[cid].append(f"{desc or ''} {tip or ''}")
+    return {cid: text_flags(" ".join(t)) for cid, t in texts.items()}
 
 
 FIXES = []  # (patch, stat) where Data Dragon was replaced by game-file values
@@ -261,7 +294,7 @@ def champion_features(con, patch, version):
 # --------------------------------------------------------------------------- #
 # Item features
 # --------------------------------------------------------------------------- #
-def item_features(con, version):
+def item_features(con, version, patch=None, passive_patch=None):
     feats = defaultdict(dict)
     for iid, name, total, gbase, purch, on_sr, tags, bfrom, binto in con.execute(
             "SELECT item_id, name, gold_total, gold_base, purchasable, on_sr, tags, "
@@ -281,7 +314,23 @@ def item_features(con, version):
             "SELECT item_id, stat, value FROM item_stats WHERE version = ?", (version,)):
         if iid in feats and value:
             feats[iid][f"stat_{stat}"] = value
+    if passive_patch and _has_table(con, "item_passives"):
+        # passive numbers from the game files (fetch_item_data.py); a patch whose file was
+        # missing uses the nearest patch's numbers (passive_patch)
+        for iid, name, value in con.execute(
+                "SELECT item_id, name, value FROM item_passives WHERE patch = ?", (passive_patch,)):
+            if iid in feats and not name.startswith("stat_") and value is not None:
+                feats[iid][f"pv_{name}"] = value
+    if patch and _has_table(con, "item_texts"):
+        for iid, desc in con.execute(
+                "SELECT item_id, description FROM item_texts WHERE patch = ?", (patch,)):
+            if iid in feats:
+                feats[iid].update(text_flags(desc))
     return feats
+
+
+def _has_table(con, name):
+    return con.execute("SELECT 1 FROM sqlite_master WHERE name = ?", (name,)).fetchone() is not None
 
 
 # --------------------------------------------------------------------------- #
@@ -360,7 +409,7 @@ def changes(prev, cur):
             if m and any(a.get(f"{s}_{m.group(1)}_partial", 0) != b.get(f"{s}_{m.group(1)}_partial", 0)
                          for s in ["P"] + SLOTS):
                 continue
-            if feat.startswith("data_") and (feat not in a or feat not in b):
+            if feat.startswith(("data_", "pv_")) and (feat not in a or feat not in b):
                 continue  # a raw value appearing/disappearing is usually a rename
             o, n = a.get(feat, 0.0), b.get(feat, 0.0)
             # ignore storage rounding (e.g. 3.1 in Data Dragon vs 3.0999999 in the
@@ -383,10 +432,28 @@ def build(con):
                           "kind, name, rank, value);")
         print("Note: no CommunityDragon ability numbers yet (run fetch_ability_data.py) - "
               "building from Data Dragon only.")
+    item_patches = []
+    if _has_table(con, "cd_item_files"):
+        item_patches = sorted((r[0] for r in con.execute(
+            "SELECT patch FROM cd_item_files WHERE status = 200 AND n_values > 0")), key=pkey)
+    if not item_patches:
+        print("Note: no item passive numbers yet (run fetch_item_data.py) - items use Data "
+              "Dragon stats only.")
+
+    def nearest_item_patch(p):
+        if not item_patches:
+            return None
+        return min(item_patches, key=lambda q: (abs(pkey(q)[0] * 100 + pkey(q)[1]
+                                                    - pkey(p)[0] * 100 - pkey(p)[1]), pkey(q)))
+
     computed = []
     for patch, version in patches:
         cf, keys = champion_features(con, patch, version)
-        computed.append((patch, cf, keys, item_features(con, version)))
+        for cid, fl in champion_flags(con, version).items():
+            if cid in cf:
+                cf[cid].update(fl)
+        computed.append((patch, cf, keys,
+                         item_features(con, version, patch, nearest_item_patch(patch))))
     n_filled = fill_gaps([(p, cf) for p, cf, _, _ in computed])
     if n_filled:
         print(f"Filled {n_filled:,} values that were unreadable in some patches (renamed values "
@@ -414,6 +481,13 @@ def build(con):
                     d = (n or 0) - (o or 0) if o is not None and n is not None else None
                     pct = d / o if d is not None and o else None
                     rows.append((patch, prev_patch, entity, eid, feat, o, n, d, pct))
+            # the same flag switching for many champions/items in one patch is a tooltip
+            # wording change, not a balance change
+            flag_counts = defaultdict(int)
+            for r in rows:
+                if r[4].startswith("flag_"):
+                    flag_counts[(r[2], r[4])] += 1
+            rows = [r for r in rows if not (r[4].startswith("flag_") and flag_counts[(r[2], r[4])] >= 4)]
             con.executemany("INSERT INTO patch_changes VALUES (?,?,?,?,?,?,?,?,?)", rows)
             n_c = len({r[3] for r in rows if r[2] == "champion"})
             n_i = len({r[3] for r in rows if r[2] == "item"})

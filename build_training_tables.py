@@ -30,6 +30,7 @@ Usage:
 """
 
 import argparse
+import re
 import os
 import sqlite3
 import sys
@@ -55,7 +56,7 @@ CORE_EXACT = [
     "cc_hard_total", "cc_slow_max",
     "rating_attack", "rating_defense", "rating_magic", "rating_difficulty",
 ]
-CORE_PREFIXES = ["class_", "resource_", "total_", "cc_"]
+CORE_PREFIXES = ["class_", "resource_", "total_", "cc_", "flag_"]
 # ability-level summaries computed here
 DERIVED = ["basic_cd_rmax_mean", "basic_cd_r1_mean", "ult_cd_rmax", "basic_cost_rmax_mean",
            "range_max", "n_damage_abilities"]
@@ -321,6 +322,197 @@ def build_champion_patch(con, games, parts, vec, feats):
     return cp
 
 
+# --------------------------------------------------------------------------- #
+# Item changes -> which champions they touch
+# --------------------------------------------------------------------------- #
+# gold value of one unit of each Data Dragon stat (standard gold-efficiency values)
+GOLD_PER_STAT = {
+    "FlatPhysicalDamageMod": 35.0, "FlatMagicDamageMod": 20.0, "FlatHPPoolMod": 2.67,
+    "FlatArmorMod": 20.0, "FlatSpellBlockMod": 18.0, "PercentAttackSpeedMod": 2500.0,
+    "FlatCritChanceMod": 4000.0, "FlatMovementSpeedMod": 12.0, "PercentMovementSpeedMod": 3950.0,
+    "PercentLifeStealMod": 3750.0, "FlatMPPoolMod": 1.4, "FlatHPRegenMod": 3.0,
+}
+# passive numbers where LOWER is better for the owner (cooldowns, delays, costs)
+LOWER_IS_BUFF = re.compile(r"cooldown|\bcd\b|_cd|cd_|delay|cost|recharge", re.I)
+MAX_ITEM_REL = 0.5
+
+
+def item_table(con):
+    """{patch: {item_id: {feature: value}}} for finished items and boots."""
+    rows = pd.read_sql_query("SELECT patch, item_id, feature, value FROM patch_item_features", con)
+    out = {}
+    for (p, iid), g in rows.groupby(["patch", "item_id"]):
+        f = dict(zip(g["feature"], g["value"]))
+        if f.get("is_completed") or f.get("tag_boots"):
+            out.setdefault(p, {})[str(iid)] = f
+    return out
+
+
+def item_names(con):
+    names = {}
+    for p, v in con.execute("SELECT patch, version FROM patches"):
+        for iid, n in con.execute("SELECT item_id, name FROM items WHERE version = ?", (v,)):
+            names.setdefault(p, {})[str(iid)] = n
+    return names
+
+
+def stat_gold(f):
+    return sum(f.get(f"stat_{s}", 0.0) * g for s, g in GOLD_PER_STAT.items())
+
+
+def item_changes(items):
+    """Per patch and changed item: size of the change, as a share of the item's cost.
+      stat_pct     (stat gold value change - price change) / old price
+      passive_pct  average change of the passive numbers that changed (+ = stronger)
+    """
+    order = sorted(items, key=pkey)
+    rows = []
+    for prev, cur in zip(order, order[1:]):
+        for iid, fc in items[cur].items():
+            fp = items[prev].get(iid)
+            if not fp or not fp.get("gold_total"):
+                continue
+            d_cost = fc.get("gold_total", 0) - fp.get("gold_total", 0)
+            stat_pct = ((stat_gold(fc) - stat_gold(fp)) - d_cost) / fp["gold_total"]
+            rels, desc = [], []
+            for k in set(fc) & set(fp):
+                if not k.startswith("pv_"):
+                    continue
+                o, n = fp[k], fc[k]
+                if o is None or n is None or abs(n - o) <= 1e-6 * max(1, abs(o)):
+                    continue
+                r = np.clip((n - o) / abs(o), -MAX_ITEM_REL, MAX_ITEM_REL) if o else np.sign(n - o) * 0.2
+                if LOWER_IS_BUFF.search(k):
+                    r = -r
+                rels.append(r)
+                desc.append(f"{k[3:]} {o:g}->{n:g}")
+            flags_gained = [k[5:] for k in fc if k.startswith("flag_") and fc[k] and not fp.get(k)]
+            flags_lost = [k[5:] for k in fp if k.startswith("flag_") and fp[k] and not fc.get(k)]
+            stat_desc = [f"{k[5:]} {fp.get(k, 0):g}->{fc.get(k, 0):g}" for k in set(fc) | set(fp)
+                         if k.startswith("stat_") and abs(fc.get(k, 0) - fp.get(k, 0)) > 1e-9]
+            if abs(stat_pct) < 1e-6 and not rels and not flags_gained and not flags_lost:
+                continue
+            rows.append({"patch": cur, "item_id": iid, "cost_change": d_cost,
+                         "stat_pct": stat_pct,
+                         "passive_pct": float(np.mean(rels)) if rels else 0.0,
+                         "n_passive_changed": len(rels),
+                         "flags_gained": ",".join(flags_gained), "flags_lost": ",".join(flags_lost),
+                         "changes": "; ".join(([f"cost {fp.get('gold_total', 0):g}->"
+                                                f"{fc.get('gold_total', 0):g}"] if d_cost else [])
+                                              + stat_desc + desc)[:300]})
+    return pd.DataFrame(rows)
+
+
+def item_exposure(con, games):
+    """Share of each champion's games (per patch) that ended with each item."""
+    patch_of = games.set_index("match_id")["patch"]
+    counts = []
+    for chunk in pd.read_sql_query("SELECT match_id, champion_id AS champ_key, items "
+                                   "FROM participants", con, chunksize=400_000):
+        chunk = chunk[chunk["match_id"].isin(patch_of.index)]
+        if chunk.empty:
+            continue
+        chunk["patch"] = chunk["match_id"].map(patch_of)
+        chunk["player"] = np.arange(len(chunk))
+        ex = chunk[["patch", "champ_key", "player", "items"]].assign(
+            item=chunk["items"].fillna("").str.split(",")).explode("item")
+        ex = ex[ex["item"].str.len() > 0].drop_duplicates(["player", "item"])
+        counts.append(ex.groupby(["patch", "champ_key", "item"]).size())
+    if not counts:
+        return pd.DataFrame(columns=["patch", "champ_key", "item", "share"])
+    c = pd.concat(counts).groupby(level=[0, 1, 2]).sum().rename("n").reset_index()
+    tot = games.melt(value_vars=[f"{s}_{p}_champ" for s in ("blue", "red") for p in POSITIONS],
+                     id_vars=["patch"], value_name="champ_key").groupby(["patch", "champ_key"]).size()
+    c = c.join(tot.rename("games"), on=["patch", "champ_key"])
+    c["share"] = c["n"] / c["games"]
+    c["champ_key"] = c["champ_key"].astype(int)
+    return c[["patch", "champ_key", "item", "share", "games"]]
+
+
+def add_item_scores(con, cp, games, out_dir):
+    """Item buff scores per champion and patch, plus training/item_changes.csv."""
+    if "patch_item_features" not in {r[0] for r in con.execute("SELECT name FROM sqlite_master")}:
+        return cp
+    items = item_table(con)
+    if not items:
+        return cp
+    chg = item_changes(items)
+    expo = item_exposure(con, games)
+    if expo.empty:
+        return cp
+    game_patches = sorted(expo["patch"].unique(), key=pkey)
+    all_patches = sorted(cp["patch"].unique(), key=pkey)
+    # builds known BEFORE each patch: the latest earlier patch with games
+    src = {}
+    for p in all_patches:
+        earlier = [q for q in game_patches if pkey(q) < pkey(p)]
+        if earlier:
+            src[p] = earlier[-1]
+    eff = {p: {iid: stat_gold(f) / f["gold_total"] for iid, f in its.items() if f.get("gold_total")}
+           for p, its in items.items()}
+    by_patch = {p: g.set_index("item_id") for p, g in chg.groupby("patch")} if len(chg) else {}
+    expo_by = {p: g for p, g in expo.groupby("patch")}
+    rows = []
+    for p in all_patches:
+        s = src.get(p)
+        if s is None:
+            continue
+        e = expo_by[s]
+        c = by_patch.get(p)
+        stat = e["item"].map(c["stat_pct"]).fillna(0.0) if c is not None else 0.0
+        pas = e["item"].map(c["passive_pct"]).fillna(0.0) if c is not None else 0.0
+        touched = e["item"].isin(c.index).astype(float) if c is not None else 0.0
+        ef = e["item"].map(eff.get(p, {}))
+        t = pd.DataFrame({"champ_key": e["champ_key"], "stat": e["share"] * stat,
+                          "pas": e["share"] * pas, "touch": e["share"] * touched,
+                          "eff_w": e["share"] * ef.fillna(0), "w": e["share"] * ef.notna()})
+        g = t.groupby("champ_key").sum()
+        rows.append(pd.DataFrame({"patch": p, "champ_key": g.index,
+                                  "item_stat_buff": g["stat"].values,
+                                  "item_passive_buff": g["pas"].values,
+                                  "item_changed_share": g["touch"].values,
+                                  "item_efficiency": (g["eff_w"] / g["w"].where(g["w"] > 0)).values}))
+    if rows:
+        sc = pd.concat(rows, ignore_index=True)
+        cp = cp.merge(sc, on=["patch", "champ_key"], how="left")
+        for col in ("item_stat_buff", "item_passive_buff", "item_changed_share"):
+            cp[col] = cp[col].fillna(0.0)
+    # item change list with each item's main users (for the report)
+    if len(chg):
+        names = item_names(con)
+        champ_names = dict(zip(cp["champ_key"], cp["champion_id"]))
+        users, n_users = [], []
+        for _, r in chg.iterrows():
+            s = src.get(r["patch"])
+            if s not in expo_by:
+                users.append("")
+                n_users.append(0)
+                continue
+            u = expo_by[s][expo_by[s]["item"] == r["item_id"]]
+            u = u[u["games"] >= 100].sort_values("share", ascending=False)
+            users.append("; ".join(f"{champ_names.get(k, k)} {sh:.0%}"
+                                   for k, sh in zip(u["champ_key"][:6], u["share"][:6])))
+            n_users.append(int((u["share"] >= 0.2).sum()))
+        chg["name"] = [names.get(p, {}).get(i, i) for p, i in zip(chg["patch"], chg["item_id"])]
+        chg["main_users"] = users
+        chg["n_champs_20pct"] = n_users
+        os.makedirs(out_dir, exist_ok=True)
+        chg.to_csv(os.path.join(out_dir, "item_changes.csv"), index=False)
+        # also the exposure of changed items per champion (for the report's per-item check)
+        ex = []
+        for _, r in chg.iterrows():
+            s = src.get(r["patch"])
+            if s in expo_by:
+                u = expo_by[s][expo_by[s]["item"] == r["item_id"]]
+                ex.append(pd.DataFrame({"patch": r["patch"], "item_id": r["item_id"],
+                                        "champion_id": u["champ_key"].map(champ_names),
+                                        "share": u["share"]}))
+        if ex:
+            pd.concat(ex, ignore_index=True).to_csv(os.path.join(out_dir, "item_users.csv"),
+                                                    index=False)
+    return cp
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(description="Build model training tables.")
     ap.add_argument("--db", default="lol_data.db")
@@ -349,6 +541,12 @@ def main(argv=None):
 
     cp = build_champion_patch(con, games, parts, vec, feats)
     del parts
+    cp = add_item_scores(con, cp, games, args.out)
+    if "item_stat_buff" in cp:
+        aff = (cp["item_changed_share"] > 0.1).sum()
+        print(f"Item changes: {cp.loc[cp['item_changed_share'] > 0, 'patch'].nunique()} patches with "
+              f"changed items; {aff:,} champion-patches where 10%+ of builds had a changed item"
+              f"{memlimit.ram_note()}", flush=True)
     with_data = cp[cp["games"].notna()]
     print(f"Champion-patch rows: {len(cp):,} ({len(with_data):,} with games; "
           f"median {with_data['games'].median():.0f} games per champion per patch)")

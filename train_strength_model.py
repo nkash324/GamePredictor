@@ -3,8 +3,9 @@
 train_strength_model.py  -  the champion strength model (a small neural network, PyTorch).
 
 Built the way a game works:
-  1. STRENGTH: one small network turns a champion's numbers (stats, abilities, class) and
-     role into a single strength score. The same network scores all 10 champions, so what
+  1. STRENGTH: one small network turns a champion's numbers (stats, abilities, class,
+     effect flags like dash/shield, and how their usual items changed) and role into a
+     single strength score. The same network scores all 10 champions, so what
      it learns about "+10% AP ratio on a mid mage" comes from EVERY game with every
      champion, not only the few champions that were changed.
      Besides the numbers themselves, the network sees how each number changed since the
@@ -112,6 +113,19 @@ class Data:
         con = sqlite3.connect(f"file:{db}?mode=ro", uri=True, timeout=60)
         vec, feats = btt.champion_vectors(con)
         con.close()
+        # item changes per champion and patch (how much their usual items changed, and how
+        # gold-efficient their items are), from build_training_tables.py
+        cpath = os.path.join(train_dir, "champion_patch.parquet")
+        item_cols = ["item_stat_buff", "item_passive_buff", "item_changed_share", "item_efficiency"]
+        if os.path.exists(cpath):
+            import pyarrow.parquet as pq
+            have = [c for c in item_cols if c in pq.read_schema(cpath).names]
+            if have:
+                ic = pd.read_parquet(cpath, columns=["patch", "champ_key"] + have)
+                vec = vec.merge(ic, on=["patch", "champ_key"], how="left")
+                for c in have:
+                    vec[c] = vec[c].fillna(vec[c].mean() if c == "item_efficiency" else 0.0).fillna(0.0)
+                feats = list(feats) + have
         self.feats = feats
         self.vec = vec.reset_index(drop=True)
         X = self.vec[feats].to_numpy(np.float64)

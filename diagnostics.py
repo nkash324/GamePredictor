@@ -306,6 +306,122 @@ def strength_bucket(r):
                   labels=["weak (<48%)", "a bit weak", "average", "a bit strong", "strong (>52%)"])
 
 
+STRENGTH_EFFECT_SCALE = 0.75   # strength model effects run ~2-3x too big; this scale fitted best
+
+
+def svg_pred_actual(x, y, size, labels, bins=None, faint=False):
+    """Predicted (x) vs actual (y) winrate %. Axes fit the data; dashed = perfect."""
+    x, y, size = (np.asarray(v, float) for v in (x, y, size))
+    if len(x) < 3:
+        return "<p class='muted'>No data yet.</p>"
+    xlo, xhi = np.nanpercentile(x, 0.5) - 0.4, np.nanpercentile(x, 99.5) + 0.4
+    ylo, yhi = np.nanpercentile(y, 0.5) - 0.6, np.nanpercentile(y, 99.5) + 0.6
+    xt = np.arange(math.ceil(xlo), math.floor(xhi) + 1, 1.0)
+    step = 2.0 if yhi - ylo > 8 else 1.0
+    yt = np.arange(math.ceil(ylo / step) * step, yhi + 1e-9, step)
+    sx, sy, parts = _axes(xlo, xhi, ylo, yhi, "predicted winrate %", "actual winrate %",
+                          xt=xt, yt=yt, fmt="{:.0f}")
+    lo, hi = max(xlo, ylo), min(xhi, yhi)
+    parts.append(f'<line x1="{sx(lo):.1f}" y1="{sy(lo):.1f}" x2="{sx(hi):.1f}" y2="{sy(hi):.1f}" '
+                 f'class="diag"><title>perfect prediction</title></line>')
+    keep = (x >= xlo) & (x <= xhi) & (y >= ylo) & (y <= yhi)
+    r = 2.0 + 6 * np.sqrt(size / (np.nanmax(size) or 1))
+    for xi, yi, ri, lab, k in zip(x, y, r, labels, keep):
+        if k:
+            cls = "ptf" if faint else "pt"
+            rad = 1.6 if faint else ri
+            parts.append(f'<circle cx="{sx(xi):.1f}" cy="{sy(yi):.1f}" r="{rad:.1f}" class="{cls}">'
+                         f'<title>{html.escape(str(lab))}</title></circle>')
+    if bins is not None:
+        for bx, by, be in bins:
+            parts.append(f'<line x1="{sx(bx):.1f}" y1="{sy(by - 2 * be):.1f}" x2="{sx(bx):.1f}" '
+                         f'y2="{sy(by + 2 * be):.1f}" class="eb"/>')
+            parts.append(f'<circle cx="{sx(bx):.1f}" cy="{sy(by):.1f}" r="5" class="pt2"><title>'
+                         f'predicted {bx:.2f}%, actual {by:.2f}% (+-{2 * be:.2f})</title></circle>')
+    else:     # trend line (games-weighted fit)
+        w = np.sqrt(size)
+        b1, b0 = np.polyfit(x, y, 1, w=w)
+        parts.append(f'<line x1="{sx(xlo):.1f}" y1="{sy(b0 + b1 * xlo):.1f}" x2="{sx(xhi):.1f}" '
+                     f'y2="{sy(b0 + b1 * xhi):.1f}" class="trend"><title>trend</title></line>')
+    return svg_wrap(parts)
+
+
+def prediction_table(d, strength_det):
+    """One predicted winrate per champion-patch: expected winrate + the patch effect.
+    The effect comes from the strength model (scaled) when it's available."""
+    m = d.copy()
+    m["effect_used"] = m["predicted"]
+    source = "change model"
+    if strength_det is not None and len(strength_det) and "effect" in strength_det:
+        s = strength_det[["patch", "champion_id", "effect"]].copy()
+        s["patch"] = s["patch"].astype(str)
+        m = m.merge(s, on=["patch", "champion_id"], how="left")
+        has = m["effect"].notna() & (m["changed"] == 1)
+        m.loc[has, "effect_used"] = STRENGTH_EFFECT_SCALE * m.loc[has, "effect"]
+        source = f"strength model x{STRENGTH_EFFECT_SCALE:g}"
+    m["final_pred"] = m["base_pred"] + m["effect_used"]
+    return m, source
+
+
+def sec_pred_vs_actual(d, strength_det, n_charts=5):
+    m, source = prediction_table(d, strength_det)
+    m["p"], m["a"] = m["final_pred"] * 100, m["winrate"] * 100
+    corr = lambda t: float(np.corrcoef(t["p"], t["a"])[0, 1]) if len(t) > 2 else np.nan
+    patches = sorted(m["patch"].unique(), key=pkey)
+    last = patches[-1]
+    x = m[m["patch"] == last]
+    lab = lambda t: (t["champion_id"] + " " + t["patch"] + ": predicted " + t["p"].round(1).astype(str)
+                     + "%, actual " + t["a"].round(1).astype(str) + "% (" + t["games"].astype(int).astype(str)
+                     + " games)")
+    left = svg_pred_actual(x["p"], x["a"], x["games"], lab(x))
+    y = m[m["games"] >= 1000]
+    if len(y) < 50:
+        y = m
+    nb = 12 if len(y) >= 120 else max(3, len(y) // 10)
+    y = y.assign(b=pd.qcut(y["p"].rank(method="first"), nb, labels=False))
+    bins = []
+    for _, t in y.groupby("b"):
+        w = t["games"]
+        bins.append((np.average(t["p"], weights=w), np.average(t["a"], weights=w),
+                     math.sqrt(np.sum(w ** 2 * (t["noise_sd"] * 100) ** 2)) / w.sum()))
+    right = svg_pred_actual(y["p"], y["a"], y["games"], lab(y), bins=bins, faint=True)
+    per = pd.DataFrame({"champions": m.groupby("patch").size(),
+                        "r (all)": m.groupby("patch").apply(corr),
+                        "r (1000+ games)": m[m["games"] >= 1000].groupby("patch").apply(corr)})
+    per = per.loc[sorted(per.index, key=pkey)]
+    s_cur = m.dropna(subset=["last_patch_pred"])
+    base_r = float(np.corrcoef(s_cur["last_patch_pred"] * 100, s_cur["a"])[0, 1])
+    body = (f"<div class='grid2'><div><h3>Patch {last}: every champion "
+            f"(r = {corr(x):.2f})</h3>{left}<p class='cap'>One dot per champion, size = games. "
+            f"Dashed = perfect prediction, orange = trend. Hover a dot for the champion.</p></div>"
+            f"<div><h3>All tested patches, champions with 1000+ games (r = {corr(y):.2f})</h3>{right}"
+            f"<p class='cap'>Grey = each champion on each patch. Blue = the champions split into "
+            f"{nb} groups by predicted winrate, with their average actual winrate (bars = 2 luck "
+            f"wobbles). Blue dots on the dashed line = the predictions are right on average.</p>"
+            f"</div></div>")
+    body += note(f"<b>r</b> measures how well predicted and actual winrates line up: 0 = not at all, "
+                 f"1 = perfectly. Here {corr(m):.2f} for all champions (last patch's winrate alone: "
+                 f"{base_r:.2f}). It can't reach 1: a champion's actual winrate on one patch includes "
+                 f"luck, which no prediction can know. More games per patch raise the ceiling. "
+                 f"Prediction = expected winrate + patch effect ({source}).")
+    if n_charts > 0:
+        charts = []
+        for p in patches[-n_charts:][::-1]:
+            t = m[m["patch"] == p]
+            charts.append(f"<div><h3>Patch {p} (r = {corr(t):.2f})</h3>"
+                          f"{svg_pred_actual(t['p'], t['a'], t['games'], lab(t))}</div>")
+        body += (f"<h3 style='margin-top:26px'>Last {len(charts)} patches</h3>"
+                 f"<div class='grid2'>{''.join(charts)}</div><p class='cap'>Change how many with "
+                 f"<code>python diagnostics.py --patch-charts 8</code> (or update_model.bat "
+                 f"--patch-charts 8).</p>")
+    body += "<h3>Per patch</h3>" + table(per.rename_axis("patch"),
+                                         {"champions": "{:.0f}", "r (all)": "{:.2f}",
+                                          "r (1000+ games)": "{:.2f}"})
+    return section("pva", "Predicted vs actual winrate",
+                   "Every champion's predicted winrate on a patch (made before the patch, from "
+                   "earlier patches only) against what actually happened.", body)
+
+
 def sec_luck(d):
     cov1, cov2 = float(np.mean(d["z"].abs() < 1)) * 100, float(np.mean(d["z"].abs() < 2)) * 100
     s = error_summary(d)
@@ -776,6 +892,156 @@ def sec_strength(sres, sdet, scorr, d, gres):
                    "to the other models.", "".join(parts))
 
 
+def _item_frame(d, cp):
+    """Change model predictions with the champions' item scores attached."""
+    cols = ["item_stat_buff", "item_passive_buff", "item_changed_share"]
+    m = d.copy()
+    if not all(c in m for c in cols) and cp is not None and all(c in cp for c in cols):
+        c2 = cp[["patch", "champion_id"] + cols].copy()
+        c2["patch"] = c2["patch"].astype(str)
+        m = m.drop(columns=[c for c in cols if c in m]).merge(c2, on=["patch", "champion_id"], how="left")
+    if not all(c in m for c in cols):
+        return None
+    for c in cols:
+        m[c] = m[c].fillna(0.0)
+    m["item_buff"] = m["item_stat_buff"] + m["item_passive_buff"]
+    return m
+
+
+def _group_effect(t):
+    """Average change beyond expected (points) and its luck wobble, games-weighted."""
+    w = t["games"]
+    mean = np.average(t["actual"], weights=w) * 100
+    se = math.sqrt(np.sum(w ** 2 * t["noise_sd"] ** 2)) / w.sum() * 100
+    return mean, se
+
+
+def sec_items(d, cp, ichg, iusers):
+    m = _item_frame(d, cp)
+    if m is None:
+        return section("items", "Item changes",
+                       "Which champions, roles and classes gain when items change.",
+                       note("No item scores yet - run update_model.bat (it rebuilds the tables with "
+                            "item changes). For item passives, fetch_item_data.py runs as part of it."))
+    parts = []
+    # only champions touched by item changes but NOT changed themselves: a clean look at items
+    t = m[(m["item_changed_share"] >= 0.10) & (m["changed"] != 1)].copy()
+    if len(t) >= 10:
+        t["kind"] = np.select([t["item_buff"] > 0.01, t["item_buff"] < -0.01],
+                              ["items buffed (1%+ of cost)", "items nerfed (1%+ of cost)"],
+                              "items changed, roughly even")
+        rows = []
+        for label, g in [("all", t)] + list(t.groupby("kind")):
+            mean, se = _group_effect(g)
+            rows.append({"group": label, "champion-patches": len(g),
+                         "avg item change (% of cost)": np.average(g["item_buff"], weights=g["games"]) * 100,
+                         "avg winrate change (pts)": mean, "+- luck": 2 * se,
+                         "clear?": "yes" if abs(mean) > 2 * se else "not yet"})
+        parts.append("<h3>Champions whose items changed (but who weren't changed themselves)</h3>"
+                     + table(pd.DataFrame(rows).set_index("group"),
+                             {"champion-patches": "{:.0f}", "avg item change (% of cost)": "{:+.1f}",
+                              "avg winrate change (pts)": "{:+.2f}", "+- luck": "{:.2f}"},
+                             {"clear?": lambda v: "good" if v == "yes" else ""}))
+        r_all = float(np.corrcoef(t["item_buff"], t["actual"])[0, 1]) if t["item_buff"].std() > 0 else np.nan
+        parts.append(f"<p class='cap'><b>winrate change</b> = actual winrate minus the expected "
+                     f"winrate (before any patch effect). <b>+- luck</b> = 2 luck wobbles: a "
+                     f"change bigger than that is unlikely to be chance. Line-up of item change "
+                     f"and winrate change: r = {r_all:.2f}.</p>")
+        # by role and class: buffed vs nerfed
+        for by, title in (("role", "By role"), ("class", "By class")):
+            rows = []
+            for k, g in t.groupby(by):
+                if len(g) < 5:
+                    continue
+                b, n = g[g["item_buff"] > 0.01], g[g["item_buff"] < -0.01]
+                mb, sb = _group_effect(b) if len(b) else (np.nan, np.nan)
+                mn, sn = _group_effect(n) if len(n) else (np.nan, np.nan)
+                rr = float(np.corrcoef(g["item_buff"], g["actual"])[0, 1]) if g["item_buff"].std() > 0 else np.nan
+                rows.append({by: k, "n": len(g), "after item buffs (pts)": mb, "+-": 2 * sb,
+                             "after item nerfs (pts)": mn, "+- ": 2 * sn, "r": rr})
+            if rows:
+                parts.append(f"<h3>{title}</h3>" + table(
+                    pd.DataFrame(rows).set_index(by),
+                    {"n": "{:.0f}", "after item buffs (pts)": "{:+.2f}", "+-": "{:.2f}",
+                     "after item nerfs (pts)": "{:+.2f}", "+- ": "{:.2f}", "r": "{:+.2f}"},
+                    {"r": lambda v: "good" if v >= 0.2 else ("bad" if v <= -0.2 else "")}))
+        parts.append("<h3>Item change vs winrate change</h3>"
+                     + svg_scatter(t["item_buff"] * 100, t["actual"] * 100, t["games"],
+                                   t["patch"] + " " + t["champion_id"] + ": items "
+                                   + (t["item_buff"] * 100).round(1).astype(str) + "% of cost, winrate "
+                                   + (t["actual"] * 100).round(1).astype(str) + " pts",
+                                   "how much their items changed (% of item cost)",
+                                   "winrate change beyond expected (pts)", diag=False)
+                     + "<p class='cap'>One dot per champion and patch (size = games). Dots rising "
+                       "to the right = champions gain when their items get stronger.</p>")
+    else:
+        parts.append(note("Not enough item changes with games yet to measure."))
+    # per item
+    if ichg is not None and len(ichg):
+        ic = ichg.copy()
+        ic["patch"] = ic["patch"].astype(str)
+        ic["item_id"] = ic["item_id"].astype(str)
+        eff = {}
+        if iusers is not None and len(iusers):
+            iu = iusers.assign(patch=iusers["patch"].astype(str), item_id=iusers["item_id"].astype(str))
+            j = iu.merge(m[["patch", "champion_id", "games", "actual", "noise_sd"]],
+                         on=["patch", "champion_id"], how="inner")
+            j = j[j["share"] >= 0.05]
+            for (p, i), g in j.groupby(["patch", "item_id"]):
+                w = g["share"] * g["games"]
+                if w.sum() > 0:
+                    eff[(p, i)] = (np.average(g["actual"], weights=w) * 100,
+                                   math.sqrt(np.sum(w ** 2 * g["noise_sd"] ** 2)) / w.sum() * 100)
+        ic["users' change (pts)"] = [eff.get((p, i), (np.nan, np.nan))[0] for p, i in zip(ic["patch"], ic["item_id"])]
+        ic["+-"] = [2 * eff.get((p, i), (np.nan, np.nan))[1] for p, i in zip(ic["patch"], ic["item_id"])]
+        ic["size (% of cost)"] = (ic["stat_pct"] + ic["passive_pct"]) * 100
+        sign = np.sign(ic["size (% of cost)"])
+        ic["verdict"] = np.where(ic["users' change (pts)"].isna(), "",
+                        np.where(ic["users' change (pts)"].abs() <= ic["+-"], "no clear change",
+                        np.where(np.sign(ic["users' change (pts)"]) == sign, "as expected", "opposite")))
+        ic = ic.reindex(ic["size (% of cost)"].abs().sort_values(ascending=False).index)
+        ic = ic.sort_values("patch", key=lambda s: s.map(pkey), ascending=False, kind="stable")
+        show = ic[["patch", "name", "changes", "size (% of cost)", "main_users",
+                   "users' change (pts)", "+-", "verdict"]].head(40)
+        parts.append("<h3>Item changes, newest first</h3>" + table(
+            show.set_index("patch"),
+            {"size (% of cost)": "{:+.1f}", "users' change (pts)": "{:+.2f}", "+-": "{:.2f}"},
+            {"verdict": lambda v: "good" if v == "as expected" else ("bad" if v == "opposite" else "")}))
+        parts.append("<p class='cap'><b>size</b> = stat value change minus price change, as a share "
+                     "of the item's price, plus the average change of its passive numbers. "
+                     "<b>users' change</b> = winrate change beyond expected of the champions who "
+                     "build it, weighted by how often they build it. Passive changes that aren't "
+                     "numbers (new effects) only show up through the flags.</p>")
+    # flags: how often each changes (too rare = can't be learned yet)
+    if cp is not None:
+        fl = [c for c in cp.columns if c.startswith("delta_flag_")]
+        if fl:
+            rows = []
+            for c in fl:
+                name = c.replace("delta_flag_", "")
+                ch = int((cp[c].fillna(0) != 0).sum())
+                has = cp.get(f"flag_{name}")
+                share = float(has.mean()) if has is not None else np.nan
+                it = 0
+                if ichg is not None and len(ichg):
+                    it = int(ichg["flags_gained"].fillna("").str.contains(name).sum()
+                             + ichg["flags_lost"].fillna("").str.contains(name).sum())
+                rows.append({"flag": name, "champions with it": share * 100,
+                             "champion changes": ch, "item changes": it,
+                             "usable?": "yes" if ch + it >= 10 else ("few" if ch + it >= 4 else "too rare")})
+            parts.append("<h3>Effect flags: how often they change</h3>" + table(
+                pd.DataFrame(rows).set_index("flag"),
+                {"champions with it": "{:.0f}%", "champion changes": "{:.0f}", "item changes": "{:.0f}"},
+                {"usable?": lambda v: "good" if v == "yes" else ("warn" if v == "few" else "bad")}))
+            parts.append("<p class='cap'>A flag has to change a number of times across patches before "
+                         "its effect can be learned. Rare ones still help the strength model tell "
+                         "champions apart (e.g. which champions have healing), but their changes are "
+                         "noise until more patches arrive.</p>")
+    return section("items", "Item changes",
+                   "Do champions gain when the items they build get stronger? Split by role and "
+                   "class, plus every item change and how its users did.", "".join(parts))
+
+
 def sec_data(cp):
     parts = []
     cp = cp.copy()
@@ -855,7 +1121,8 @@ code{font-size:12px;background:var(--bg);padding:1px 4px;border-radius:3px}
 .chart{width:100%;height:auto;max-width:640px}.ax{stroke:var(--mut)}.gr{stroke:var(--line)}
 .tk{fill:var(--mut);font-size:11px}.lb{fill:var(--fg);font-size:12px}
 .diag{stroke:var(--mut);stroke-dasharray:4 4}.zero{stroke:var(--line)}
-.pt{fill:var(--acc);fill-opacity:.45;stroke:var(--acc)}.pt2{fill:var(--acc)}.eb{stroke:var(--acc);stroke-width:2}
+.pt{fill:var(--acc);fill-opacity:.45;stroke:var(--acc)}.pt2{fill:var(--acc)}.ptf{fill:var(--mut);fill-opacity:.25}
+.trend{stroke:#e8a33d;stroke-width:2}.eb{stroke:var(--acc);stroke-width:2}
 .bar{fill:var(--acc);fill-opacity:.75}.bar.bad{fill:var(--badf)}.curve{fill:none;stroke:var(--fg);stroke-width:2}
 .ln{fill:none;stroke-width:2}.ln0{stroke:#9aa0a6}.ln1{stroke:#e8a33d}.ln2{stroke:var(--acc)}
 .c0{fill:#9aa0a6}.c1{fill:#e8a33d}.c2{fill:var(--acc)}.refl{fill:none;stroke:var(--goodf);stroke-dasharray:5 4;stroke-width:2}
@@ -863,7 +1130,7 @@ code{font-size:12px;background:var(--bg);padding:1px 4px;border-radius:3px}
 """
 
 
-def build(dir_training, dir_models, out):
+def build(dir_training, dir_models, out, patch_charts=5):
     T = lambda n: os.path.join(dir_training, n)
     cp = read(T("champion_patch.parquet"))
     if cp is None:
@@ -904,14 +1171,16 @@ def build(dir_training, dir_models, out):
         card("Game model AUC", auc_txt, "0.5 = coin flip"),
     ])
     nav = "".join(f"<a href='#{a}'>{t}</a>" for a, t in [
-        ("luck", "Luck or mistakes"), ("where", "Where"), ("champs", "Champions"),
+        ("pva", "Predicted vs actual"), ("luck", "Luck or mistakes"), ("where", "Where"), ("champs", "Champions"),
         ("calib", "Calibration"), ("bold", "Bold picks"), ("why", "What it learned"),
         ("patches", "Per patch"),
-        ("game", "Game model"), ("strength", "Strength model"), ("data", "Data checks")])
-    body = "".join([sec_luck(d), sec_breakdown(d, None), sec_champions(d), sec_calibration(d),
+        ("game", "Game model"), ("strength", "Strength model"), ("items", "Item changes"),
+        ("data", "Data checks")])
+    ichg, iusers = read(T("item_changes.csv")), read(T("item_users.csv"))
+    body = "".join([sec_pred_vs_actual(d, sdet, patch_charts), sec_luck(d), sec_breakdown(d, None), sec_champions(d), sec_calibration(d),
                     sec_bold(d, cres), sec_why(d, weights), sec_patches(cres, bres), sec_game(gres, gp, imp, effects, cp),
                     sec_strength(sres, sdet, scorr, d, gres),
-                    sec_data(cp)])
+                    sec_items(d, cp, ichg, iusers), sec_data(cp)])
     page = (f"<!doctype html><html lang='en'><head><meta charset='utf-8'>"
             f"<meta name='viewport' content='width=device-width,initial-scale=1'>"
             f"<title>Model diagnostics</title><style>{CSS}</style></head><body><main>"
@@ -941,10 +1210,12 @@ def main(argv=None):
     ap.add_argument("--dir", default="training")
     ap.add_argument("--models", default="models")
     ap.add_argument("--out", default="report.html")
+    ap.add_argument("--patch-charts", type=int, default=5,
+                    help="predicted-vs-actual charts for the latest N patches (default 5)")
     ap.add_argument("--open", action="store_true", help="open the report in the browser")
     args = ap.parse_args(argv)
     sys.path.insert(0, HERE)
-    build(args.dir, args.models, args.out)
+    build(args.dir, args.models, args.out, args.patch_charts)
     if args.open:
         import webbrowser
         webbrowser.open("file://" + os.path.abspath(args.out))

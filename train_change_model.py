@@ -15,7 +15,10 @@ Two parts:
 2. CHANGE MODEL - how much do this patch's changes move the champion?
    Learns directly from past patches: "-8% base damage on a mage who was already strong
    -> winrate moved X". Buffs and nerfs are scored separately, so nerfs can hurt more than
-   buffs help. Kept small (~25 inputs) so it doesn't learn from a handful of champions.
+   buffs help. Also sees effect flags gained/lost (dash, shield, ...) and item changes:
+   how much the items the champion usually buys got stronger or weaker - so a champion
+   can be affected by a patch even if they weren't changed themselves.
+   Kept small (~35 inputs) so it doesn't learn from a handful of champions.
 
 Every changed champion gets TWO predictions:
   best guess  the most accurate on average. Held back when the data is noisy, so it
@@ -49,6 +52,7 @@ BOLD_SCALE_RANGE = (1.0, 6.0) # bold = best guess x this (learned), within these
 ALPHAS = [30, 100, 300, 1000, 3000, 10000]
 REWORK_CHANGES = 25           # this many changed numbers = a rework: % changes are meaningless
 MAX_REL = 0.5                 # a single relative change counts at most +-50%
+ITEM_AFFECTED_SHARE = 0.10    # champion counts as "affected" if 10%+ of their builds had a changed item
 SWITCH_ON_GAIN = 0.01         # best guess must beat "no effect" by 1% on validation to be used
 HIST_DECAY = 0.7              # recent strength: each older patch counts 0.7x
 LONG_DECAY = 0.95             # long-term strength: each older patch counts 0.95x
@@ -173,6 +177,27 @@ def build_features(cp):
         col = f"class_{c}"
         if col in cp:
             feats[f"{c}_x_buff"] = cp[col].fillna(0) * buff_score
+    # effect flags gained / lost this patch (dash, shield, heal, ...)
+    flag_deltas = [c for c in cp.columns if c.startswith("delta_flag_")]
+    if flag_deltas:
+        fd = cp[flag_deltas].fillna(0)
+        fd[not_changed] = 0.0
+        feats["flags_gained"] = fd.clip(lower=0).sum(axis=1)
+        feats["flags_lost"] = -fd.clip(upper=0).sum(axis=1)
+    # item changes: how much the champion's usual items got stronger (share of item cost,
+    # weighted by how often they buy each item)
+    cp["affected"] = (cp["changed"].fillna(0) == 1).astype(int)
+    if "item_stat_buff" in cp:
+        item_buff = cp["item_stat_buff"].fillna(0) + cp["item_passive_buff"].fillna(0)
+        feats["item_stat_buff"] = cp["item_stat_buff"].fillna(0)
+        feats["item_passive_buff"] = cp["item_passive_buff"].fillna(0)
+        feats["item_changed_share"] = cp["item_changed_share"].fillna(0)
+        for c in CLASSES:
+            col = f"class_{c}"
+            if col in cp:
+                feats[f"{c}_x_item"] = cp[col].fillna(0) * item_buff
+        cp["affected"] = ((cp["affected"] == 1)
+                          | (cp["item_changed_share"].fillna(0) >= ITEM_AFFECTED_SHARE)).astype(int)
     X = pd.DataFrame(feats, index=cp.index)
     X = X.loc[:, X.abs().sum() > 0]
     return cp, X
@@ -262,7 +287,7 @@ class ChangeModel:
 
 
 def fit_change(rows, X, base, alpha):
-    ch = rows[rows["changed"] == 1]
+    ch = rows[rows["affected"] == 1]
     y = (ch["winrate"] - base.predict(ch)).values
     return ChangeModel().fit(X.loc[ch.index], y, ch["games"].values.astype(float), alpha)
 
@@ -283,8 +308,8 @@ def choose_settings(rows, X, patches):
     folds = []
     for vp in val_patches:
         tr = rows[rows["patch"].map(pkey) < pkey(vp)]
-        va = rows[(rows["patch"] == vp) & (rows["changed"] == 1)]
-        if va.empty or (tr["changed"] == 1).sum() < 10:
+        va = rows[(rows["patch"] == vp) & (rows["affected"] == 1)]
+        if va.empty or (tr["affected"] == 1).sum() < 10:
             continue
         base = StrengthModel().fit(tr)
         folds.append((tr, va, base, (va["winrate"] - base.predict(va)).values))
@@ -325,7 +350,7 @@ class Predictor:
     def parts(self, rows, X):
         base = self.base.predict(rows)
         raw = pd.Series(self.change.predict(X.loc[rows.index]), index=rows.index)
-        raw[rows["changed"] != 1] = 0.0          # only changed champions get an effect
+        raw[rows["affected"] != 1] = 0.0         # only champions touched by the patch get an effect
         best = raw if self.s["on"] else raw * 0.0
         bold = (raw * self.s["scale"]).clip(-MAX_BOLD, MAX_BOLD)
         return base, best, bold
@@ -411,6 +436,10 @@ def evaluate(cp, X):
         d = te[["patch", "champion_id", "games", "role"]].copy()
         d["class"] = champ_class(te)
         d["changed"] = ch.astype(int).values
+        d["affected"] = te["affected"].values
+        for col in ("item_stat_buff", "item_passive_buff", "item_changed_share"):
+            if col in te:
+                d[col] = te[col].fillna(0).values
         d["rework"] = X.loc[te.index, "rework"].values if "rework" in X else 0
         d["n_changes"] = te["n_changes"].fillna(0).values
         d["buff_score"] = te["buff_score"].values
@@ -496,7 +525,9 @@ def predict_patch(cp, X, target):
     if rows.empty:
         sys.exit(f"No champions found for patch {target} (is its balance data loaded?).")
     base, best, bold = pr.parts(rows, X)
-    out = rows[["champion_id", "changed", "n_changes", "recent_winrate", "long_winrate"]].copy()
+    cols = ["champion_id", "changed", "affected", "n_changes", "recent_winrate", "long_winrate"]
+    cols += [c for c in ("item_stat_buff", "item_passive_buff", "item_changed_share") if c in rows]
+    out = rows[cols].copy()
     out["changed"] = out["changed"].fillna(0).astype(int)
     out["expected_before_changes"] = base
     out["best_change"] = best
@@ -516,9 +547,9 @@ def predict_patch(cp, X, target):
     print(f"Best guess {'ON' if pr.s['on'] else 'OFF (did not beat no-effect on recent patches)'}; "
           f"bold = {pr.s['scale']:.1f}x the model's raw effect. Likely range: +-"
           f"{1.96 * pr.s['sd_true'] * 100:.1f} pts around the best guess.\n")
-    chg = out[out["changed"] == 1].sort_values("bold_change")
+    chg = out[out["affected"] == 1].sort_values("bold_change")
     if len(chg):
-        print("CHANGED champions (sorted by bold change):")
+        print("CHANGED champions, and champions whose usual items changed (sorted by bold change):")
         print(f"  {'champion':<14} {'before':>7} {'best':>6} {'bold':>6}   {'predicted':>9} "
               f"{'bold':>7}   likely range")
         for _, r in chg.iterrows():
@@ -530,7 +561,8 @@ def predict_patch(cp, X, target):
                         ("WEAKEST predicted (bold)", out.tail(10).iloc[::-1])):
         print(f"\n{title}:")
         for _, r in part.iterrows():
-            tag = "  (changed)" if r["changed"] == 1 else ""
+            tag = ("  (changed)" if r["changed"] == 1 else
+                   "  (items changed)" if r["affected"] == 1 else "")
             print(f"  {r['champion_id']:<14} {pct(r['bold_winrate'])}   best guess "
                   f"{pct(r['predicted_winrate'])}{tag}")
     os.makedirs("training", exist_ok=True)

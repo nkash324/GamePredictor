@@ -103,6 +103,8 @@ which opens in your browser when it's done). It stops with a clear message if an
 - `python run_pipeline.py --skip-fetch` skips checking CommunityDragon for new patches.
 - `python run_pipeline.py --only-data` updates the data and tables, but not the model.
 - `update_model.bat --max-ram-gb 6` changes the RAM limit (see below).
+- `update_model.bat --patch-charts 8` shows per-patch predicted-vs-actual charts for the
+  latest 8 patches in the report (default 5).
 - `update_model.bat --skip-data` reuses the existing training tables: skips checking for new
   patches and rebuilding the tables (saves a few minutes; new games since then aren't used).
 
@@ -147,6 +149,31 @@ python build_patch_state.py           # a few seconds: champion/item features + 
 - Re-run both after a new patch. `fetch_ability_data.py` only downloads what's new.
 - `fetch_ability_data.py --reparse` re-reads the downloaded files without downloading again
   (after a parser fix).
+
+## Item passives and effect flags
+
+```
+python fetch_item_data.py                    # item passive numbers + tooltips (first time: a few minutes)
+python fetch_item_data.py --inspect Liandry  # what was read for one item
+```
+
+- Reads each finished item's and boots' passive numbers (burn %, shield size, on-hit
+  damage, cooldowns) from the game files for every patch, so item passive changes become
+  numbers like champion ability changes. Runs as part of `update_model.bat`.
+- Changes that aren't numbers are covered by 9 yes/no **effect flags** for champions and
+  items: dash, shield, heal, stealth/untargetable, anti-heal, true damage, on-hit,
+  tenacity/cleanse, unstoppable (read from tooltips by `build_patch_state.py`). A change
+  becomes e.g. "gained a shield". If the same flag flips for 4+ champions or items in one
+  patch, it's treated as a tooltip wording change and ignored.
+- `build_training_tables.py` then gives every champion an **item buff score** per patch:
+  how much the items they usually build (from last patch's games) changed, as a share of
+  the item's cost. Stat changes are valued in gold (e.g. 10 AD = 350 gold), minus any price
+  change, and passive number changes are added on top. Champions whose builds were 10%+
+  changed items count as affected by the patch even if they weren't changed themselves.
+- The report's **Item changes** section shows whether champions gained after their items
+  were buffed, split by role and class, plus every item change with its main users and how
+  they did, and how often each flag changes (flags that almost never change can't be
+  learned yet).
 
 ## Training tables and baselines
 
