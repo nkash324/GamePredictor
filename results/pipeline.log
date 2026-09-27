@@ -1,4 +1,4 @@
-Pipeline started 2026-09-27 16:58  (8 steps)
+Pipeline started 2026-09-27 17:23  (8 steps)
 RAM limit: 7 GB for all steps (change with --max-ram-gb)
 
 ======================================================================
@@ -94,7 +94,7 @@ Champion features: 115 numbers per champion, 26 patches  [RAM 0.4 GB, peak 0.6 G
   game numbers: 140,000 / 517,595  [RAM 1.6 GB, peak 1.9 GB]
   game numbers: 160,000 / 517,595  [RAM 1.6 GB, peak 1.9 GB]
   game numbers: 180,000 / 517,595  [RAM 1.6 GB, peak 1.9 GB]
-  game numbers: 200,000 / 517,595  [RAM 1.6 GB, peak 1.9 GB]
+  game numbers: 200,000 / 517,595  [RAM 1.6 GB, peak 2.0 GB]
   game numbers: 220,000 / 517,595  [RAM 1.6 GB, peak 2.0 GB]
   game numbers: 240,000 / 517,595  [RAM 1.6 GB, peak 2.0 GB]
   game numbers: 260,000 / 517,595  [RAM 1.7 GB, peak 2.0 GB]
@@ -107,7 +107,7 @@ Champion features: 115 numbers per champion, 26 patches  [RAM 0.4 GB, peak 0.6 G
   game numbers: 400,000 / 517,595  [RAM 1.8 GB, peak 2.1 GB]
   game numbers: 420,000 / 517,595  [RAM 1.8 GB, peak 2.1 GB]
   game numbers: 440,000 / 517,595  [RAM 1.8 GB, peak 2.1 GB]
-  game numbers: 460,000 / 517,595  [RAM 1.8 GB, peak 2.1 GB]
+  game numbers: 460,000 / 517,595  [RAM 1.8 GB, peak 2.2 GB]
   game numbers: 480,000 / 517,595  [RAM 1.8 GB, peak 2.2 GB]
   game numbers: 500,000 / 517,595  [RAM 1.8 GB, peak 2.2 GB]
   game numbers: 517,595 / 517,595  [RAM 1.9 GB, peak 2.2 GB]
@@ -115,10 +115,10 @@ Games: 519,885 collected -> 517,595 kept (dropped: 27 no winner, 2207 under 10 m
 Games per patch: 16.19 34,435, 16.18 25,047, 16.17 19,893, 16.16 19,916, 16.15 19,904, 16.14 19,898, 16.13 19,912, 16.12 19,917, 16.11 19,930, 16.10 19,907, 16.9 19,914, 16.8 19,896, 16.7 19,912, 16.6 19,926, 16.5 19,929, 16.4 19,925, 16.3 19,925, 16.2 19,929, 16.1 19,945, 15.24 19,926, 15.23 19,963, 15.22 19,907, 15.21 19,924, 15.20 19,920, 15.19 19,895
 Model inputs per game: 165 numbers (+10 champion ids, + platform and rank)
 Blue side win rate: 49.5%  |  timeline gold@15 available: 25% of games
-Performance stats (damage, gold, CS, ... per minute): 4,303 champion-patches  [RAM 1.5 GB, peak 3.7 GB]
-Item changes: 17 patches with changed items; 713 champion-patches where 10%+ of builds had a changed item  [RAM 1.5 GB, peak 3.7 GB]
+Performance stats (damage, gold, CS, ... per minute): 4,303 champion-patches  [RAM 1.4 GB, peak 3.7 GB]
+Item changes: 17 patches with changed items; 713 champion-patches where 10%+ of builds had a changed item  [RAM 1.4 GB, peak 3.7 GB]
 Champion-patch rows: 4,474 (4,303 with games; median 1000 games per champion per patch)
-  tables built  [RAM 1.5 GB, peak 3.7 GB]
+  tables built  [RAM 1.4 GB, peak 3.7 GB]
 Saved training\games.parquet and training\champion_patch.parquet
 -- done in 2.2 min, peak RAM so far 3.7 GB
 
@@ -285,167 +285,180 @@ Average miss in winrate points (lower is better) - each patch predicted from ear
 
   patch  alpha  route |        ALL champions        |            CHANGED champions only           
                       | floor   last   base   best |   n floor   last   base   best   bold   dir
-  15.22   none direct |  1.12   1.27   1.23   1.23 |   9  1.22   1.31   1.46   1.46   1.04  1.00
-  15.23     30 direct |  1.13   1.32   1.27   1.30 |  19  0.90   1.14   1.12   1.35   1.35  0.25
-  15.24   none   perf |  1.12   1.31   1.27   1.27 |  18  0.98   1.58   1.52   1.52   1.34  0.78
-   16.1     30    avg |  1.12   1.64   1.59   1.57 |  31  1.04   1.38   1.40   1.29   1.40  0.61
-   16.2     30    avg |  1.12   1.26   1.20   1.24 |  18  1.00   1.05   1.23   1.37   1.97  0.29
-   16.3   none    avg |  1.12   1.46   1.32   1.32 |  26  1.05   1.71   1.33   1.33   1.61  0.42
-   16.4   none direct |  1.13   1.30   1.20   1.20 |  30  1.18   1.39   1.42   1.42   1.62  0.00
-   16.5   none direct |  1.12   1.14   1.08   1.08 |  11  1.09   1.50   1.43   1.43   1.41     -
-   16.6   none direct |  1.12   1.35   1.20   1.20 |   8  1.10   1.60   1.75   1.75   1.43  1.00
-   16.7     30   perf |  1.13   1.33   1.22   1.21 |  10  1.01   1.25   1.12   1.10   1.41  0.50
-   16.8     30    avg |  1.13   1.40   1.29   1.29 |   6  1.00   1.91   1.60   1.72   2.01  0.33
-   16.9    100 direct |  1.12   1.50   1.43   1.41 |  11  1.05   1.65   1.22   0.80   1.62  0.78
-  16.10    100 direct |  1.13   1.30   1.19   1.20 |  12  0.92   1.14   1.07   1.14   1.68  0.38
-  16.11   none    avg |  1.13   1.43   1.36   1.36 |   8  1.14   2.19   2.12   2.12   1.88  0.75
-  16.12    100 direct |  1.13   1.57   1.45   1.45 |  14  0.95   1.80   1.57   1.51   1.98  0.54
-  16.13    300    avg |  1.13   1.42   1.35   1.36 |  16  1.11   1.10   1.17   1.29   1.97  0.40
-  16.14    100 direct |  1.13   1.35   1.30   1.28 |   9  0.94   1.07   1.30   1.10   1.28  0.83
-  16.15    100 direct |  1.13   1.41   1.38   1.36 |  11  1.07   2.10   2.02   1.65   1.68  0.75
-  16.16     30 direct |  1.13   1.35   1.30   1.32 |  35  1.02   1.14   1.32   1.39   1.49  0.29
-  16.17     30 direct |  1.13   1.40   1.34   1.36 |  14  0.97   0.82   1.03   1.11   1.42  0.40
-  16.18   none direct |  1.00   1.27   1.13   1.13 |  11  0.91   1.00   0.87   0.87   0.78  0.67
-  16.19   none direct |  0.86   1.20   1.01   1.01 |  13  0.88   1.35   1.07   1.07   0.98     -
+  15.22   none direct |  1.12   1.27   1.23   1.23 |   9  1.22   1.31   1.46   1.46   1.22  1.00
+  15.23     30 direct |  1.13   1.32   1.27   1.31 |  19  0.90   1.14   1.12   1.38   1.38  0.29
+  15.24     30   perf |  1.12   1.31   1.27   1.26 |  18  0.98   1.58   1.52   1.50   1.57  0.67
+   16.1     30   perf |  1.12   1.64   1.59   1.59 |  31  1.04   1.38   1.40   1.36   1.41  0.78
+   16.2     30    avg |  1.12   1.26   1.20   1.25 |  18  1.00   1.05   1.23   1.50   3.07  0.25
+   16.3   none    avg |  1.12   1.46   1.32   1.32 |  26  1.05   1.71   1.33   1.33   1.41  0.57
+   16.4   none    avg |  1.13   1.30   1.20   1.20 |  30  1.18   1.39   1.42   1.42   1.57  0.29
+   16.5   none direct |  1.12   1.14   1.08   1.08 |  11  1.09   1.50   1.43   1.43   1.39     -
+   16.6   none direct |  1.12   1.35   1.20   1.20 |   8  1.10   1.60   1.75   1.75   1.42  0.75
+   16.7     30 direct |  1.13   1.33   1.22   1.22 |  10  1.01   1.25   1.12   1.14   1.32  0.50
+   16.8     30 direct |  1.13   1.40   1.29   1.31 |   6  1.00   1.91   1.60   1.95   2.20  0.20
+   16.9    300 direct |  1.12   1.50   1.43   1.43 |  11  1.05   1.65   1.22   1.05   0.95  0.75
+  16.10   none direct |  1.13   1.30   1.19   1.19 |  12  0.92   1.14   1.07   1.07   1.10  1.00
+  16.11   none direct |  1.13   1.43   1.36   1.36 |   8  1.14   2.19   2.12   2.12   2.12     -
+  16.12   none direct |  1.13   1.57   1.45   1.45 |  14  0.95   1.80   1.57   1.57   2.59  0.42
+  16.13    300 direct |  1.13   1.42   1.35   1.35 |  16  1.11   1.10   1.17   1.20   1.88  0.60
+  16.14    300 direct |  1.13   1.35   1.30   1.28 |   9  0.94   1.07   1.30   1.06   1.91  0.75
+  16.15    300 direct |  1.13   1.41   1.38   1.36 |  11  1.07   2.10   2.02   1.68   1.65  0.67
+  16.16    100 direct |  1.13   1.35   1.30   1.33 |  35  1.02   1.14   1.32   1.43   1.59  0.38
+  16.17    300 direct |  1.13   1.40   1.34   1.35 |  14  0.97   0.82   1.03   1.04   1.24  0.62
+  16.18   none direct |  1.00   1.27   1.13   1.13 |  11  0.91   1.00   0.87   0.87   0.80  0.71
+  16.19   none direct |  0.86   1.20   1.01   1.01 |  13  0.88   1.35   1.07   1.07   0.93  1.00
 
 All champions:     last 1.36 | base 1.28 | best 1.28   (noise floor 1.11)
-Changed champions: last 1.38 | base 1.34 | best 1.34 | bold 1.52   (noise floor 1.03)
-Best guess switched on for 13 of 22 patches. Bold scale: 6.0x on the latest patch.
-Bold direction right (changed champions, 100+ games): 55%   |   for the 3 biggest predicted movers per patch: 60% of 58
+Changed champions: last 1.38 | base 1.34 | best 1.37 | bold 1.58   (noise floor 1.03)
+Best guess switched on for 12 of 22 patches. Bold scale: 6.0x on the latest patch.
+Bold direction right (changed champions, 100+ games): 61%   |   for the 3 biggest predicted movers per patch: 63% of 57
   (50% = coin flip)
-Route chosen: direct 14x, avg 6x, perf 2x
+Route chosen: direct 17x, avg 3x, perf 2x
 
 Biggest bold predictions vs what happened (change beyond expected strength):
-   16.15 Locke          bold  -8.1  best  -2.0  actual  -4.1  (2007 games, right direction)
-    16.3 Heimerdinger   bold  +4.1  best  +0.0  actual  +0.3  (307 games, right direction)
-   16.12 Ryze           bold  -4.0  best  -0.8  actual  -3.5  (950 games, right direction)
-    16.9 XinZhao        bold  -4.0  best  -1.1  actual  -0.9  (2484 games, right direction)
-    16.2 Nilah          bold  +3.9  best  +0.7  actual  -0.9  (361 games, wrong direction)
-    16.3 Belveth        bold  +3.7  best  +0.0  actual  +1.4  (374 games, right direction)
-    16.1 MissFortune    bold  -3.6  best  -1.1  actual  -1.1  (1563 games, right direction)
-   16.10 Shyvana        bold  -3.6  best  -0.8  actual  -0.5  (796 games, right direction)
-   16.12 Orianna        bold  -3.5  best  -0.7  actual  -1.2  (619 games, right direction)
-    16.2 Nunu           bold  +3.3  best  +0.6  actual  -4.8  (617 games, wrong direction)
-    16.9 Zoe            bold  -3.3  best  -0.9  actual  -1.8  (968 games, right direction)
-    16.3 Volibear       bold  +3.2  best  +0.0  actual  -1.1  (896 games, wrong direction)
-    16.3 Trundle        bold  -3.2  best  -0.0  actual  +3.4  (367 games, wrong direction)
-    16.8 Mel            bold  -3.0  best  -0.8  actual  -4.7  (1190 games, right direction)
-    16.2 Quinn          bold  +2.9  best  +0.6  actual  -3.0  (279 games, wrong direction)
--- done in 18s, peak RAM so far 3.7 GB
+   16.15 Locke          bold  -6.6  best  -1.6  actual  -4.1  (2007 games, right direction)
+   16.12 Orianna        bold  -5.0  best  -0.0  actual  -1.2  (619 games, right direction)
+    16.2 Rengar         bold  -4.9  best  -0.8  actual  +1.2  (1091 games, wrong direction)
+   16.12 Ryze           bold  -4.4  best  -0.0  actual  -3.5  (950 games, right direction)
+    16.2 Nunu           bold  +4.3  best  +0.7  actual  -4.8  (617 games, wrong direction)
+    16.2 Viego          bold  +4.0  best  +0.7  actual  -0.4  (3378 games, wrong direction)
+    16.2 Jayce          bold  -4.0  best  -0.7  actual  +1.1  (2662 games, wrong direction)
+    16.2 Taliyah        bold  +3.8  best  +0.7  actual  +1.8  (1244 games, right direction)
+   16.14 Seraphine      bold  -3.8  best  -0.7  actual  -0.6  (2453 games, right direction)
+   16.12 Sylas          bold  +3.7  best  +0.0  actual  +0.4  (4363 games, right direction)
+   16.14 Locke          bold  -3.7  best  -0.7  actual  -0.7  (2153 games, right direction)
+   16.15 Naafiri        bold  -3.2  best  -0.8  actual  +1.8  (1194 games, wrong direction)
+   16.13 Bard           bold  -3.1  best  -0.5  actual  -0.6  (1730 games, right direction)
+   16.13 Cassiopeia     bold  -3.0  best  -0.5  actual  +0.4  (704 games, wrong direction)
+    16.2 Zed            bold  -3.0  best  -0.5  actual  +0.7  (2288 games, wrong direction)
+
+Performance route, step 1 check - do balance changes predict how each stat changed?
+(affected champions on patches the model never saw; r: 0 = no, 1 = perfectly)
+  pick+ban rate      r = +0.27   direction right 54%   (897 champion-patches)
+  healing/min        r = +0.15   direction right 51%   (897 champion-patches)
+  deaths/min         r = +0.12   direction right 52%   (897 champion-patches)
+  kills/min          r = +0.08   direction right 53%   (897 champion-patches)
+  damage taken/min   r = +0.04   direction right 53%   (897 champion-patches)
+  damage/min         r = -0.02   direction right 48%   (897 champion-patches)
+  gold/min           r = -0.03   direction right 59%   (897 champion-patches)
+  gold@15            r = -0.12   direction right 59%   (896 champion-patches)
+  CS/min             r = -0.13   direction right 45%   (897 champion-patches)
+  XP@15              r = -0.28   direction right 41%   (896 champion-patches)
+-- done in 22s, peak RAM so far 3.7 GB
 
 ======================================================================
 [7/8] Champion strength model
 ======================================================================
 Device: GPU (NVIDIA GeForce RTX 3060 Ti)
-517,595 games, 25 patches, 119 numbers per champion
+517,595 games, 25 patches, 121 numbers per champion
 Testing on 24 patch(es): 15.20, 15.21, 15.22, 15.23, 15.24, 16.1, 16.2, 16.3, 16.4, 16.5, 16.6, 16.7, 16.8, 16.9, 16.10, 16.11, 16.12, 16.13, 16.14, 16.15, 16.16, 16.17, 16.18, 16.19
   15.20: training on 19,895 games from 1 earlier patch(es)
-    trained 8 passes over 17,868 games in 1s (validation log loss 0.6992)
-    game AUC 0.509 (log loss 0.7039 vs coin 0.6929) | champion miss 1.80 pts (floor 1.12), changed 1.65 | biggest predicted effect 2.9 pts
+    trained 6 passes over 17,868 games in 1s (validation log loss 0.6893)
+    game AUC 0.520 (log loss 0.6977 vs coin 0.6929) | champion miss 1.74 pts (floor 1.12), changed 1.40 | biggest predicted effect 3.7 pts
   15.21: training on 39,815 games from 2 earlier patch(es)
-    trained 7 passes over 35,761 games in 1s (validation log loss 0.6954)
-    game AUC 0.527 (log loss 0.6950 vs coin 0.6927) | champion miss 1.48 pts (floor 1.12), changed 1.56 | biggest predicted effect 2.6 pts
+    trained 7 passes over 35,761 games in 1s (validation log loss 0.6911)
+    game AUC 0.529 (log loss 0.6946 vs coin 0.6927) | champion miss 1.68 pts (floor 1.12), changed 1.94 | biggest predicted effect 4.7 pts
   15.22: training on 59,739 games from 3 earlier patch(es)
-    trained 6 passes over 53,676 games in 2s (validation log loss 0.6903)
-    game AUC 0.520 (log loss 0.6964 vs coin 0.6936) | champion miss 1.42 pts (floor 1.12), changed 1.93 | biggest predicted effect 3.8 pts
+    trained 3 passes over 53,676 games in 1s (validation log loss 0.6914)
+    game AUC 0.530 (log loss 0.6938 vs coin 0.6936) | champion miss 1.33 pts (floor 1.12), changed 2.05 | biggest predicted effect 2.0 pts
   15.23: training on 79,646 games from 4 earlier patch(es)
-    trained 5 passes over 71,575 games in 2s (validation log loss 0.6915)
-    game AUC 0.527 (log loss 0.6940 vs coin 0.6930) | champion miss 1.40 pts (floor 1.13), changed 1.27 | biggest predicted effect 1.0 pts
+    trained 5 passes over 71,575 games in 2s (validation log loss 0.6910)
+    game AUC 0.535 (log loss 0.6920 vs coin 0.6930) | champion miss 1.39 pts (floor 1.13), changed 1.24 | biggest predicted effect 2.1 pts
   15.24: training on 99,609 games from 5 earlier patch(es)
-    trained 9 passes over 89,470 games in 4s (validation log loss 0.6924)
-    game AUC 0.535 (log loss 0.6926 vs coin 0.6932) | champion miss 1.32 pts (floor 1.12), changed 1.51 | biggest predicted effect 2.7 pts
+    trained 3 passes over 89,470 games in 2s (validation log loss 0.6906)
+    game AUC 0.536 (log loss 0.6915 vs coin 0.6932) | champion miss 1.35 pts (floor 1.12), changed 1.70 | biggest predicted effect 2.4 pts
   16.1: training on 119,535 games from 6 earlier patch(es)
-    trained 7 passes over 107,392 games in 4s (validation log loss 0.6916)
-    game AUC 0.532 (log loss 0.6957 vs coin 0.6935) | champion miss 1.97 pts (floor 1.12), changed 1.72 | biggest predicted effect 3.9 pts
+    trained 3 passes over 107,392 games in 2s (validation log loss 0.6908)
+    game AUC 0.539 (log loss 0.6932 vs coin 0.6935) | champion miss 1.84 pts (floor 1.12), changed 1.92 | biggest predicted effect 3.6 pts
   16.2: training on 139,480 games from 7 earlier patch(es)
-    trained 7 passes over 125,339 games in 4s (validation log loss 0.6908)
-    game AUC 0.546 (log loss 0.6909 vs coin 0.6932) | champion miss 1.38 pts (floor 1.12), changed 1.88 | biggest predicted effect 3.2 pts
+    trained 4 passes over 125,339 games in 3s (validation log loss 0.6906)
+    game AUC 0.546 (log loss 0.6901 vs coin 0.6932) | champion miss 1.29 pts (floor 1.12), changed 1.64 | biggest predicted effect 4.1 pts
   16.3: training on 159,409 games from 8 earlier patch(es)
-    trained 7 passes over 143,338 games in 5s (validation log loss 0.6911)
-    game AUC 0.542 (log loss 0.6913 vs coin 0.6933) | champion miss 1.45 pts (floor 1.12), changed 1.59 | biggest predicted effect 1.9 pts
+    trained 4 passes over 143,338 games in 3s (validation log loss 0.6912)
+    game AUC 0.546 (log loss 0.6904 vs coin 0.6933) | champion miss 1.43 pts (floor 1.12), changed 1.69 | biggest predicted effect 2.7 pts
   16.4: training on 179,334 games from 9 earlier patch(es)
-    trained 8 passes over 161,295 games in 6s (validation log loss 0.6896)
-    game AUC 0.552 (log loss 0.6897 vs coin 0.6933) | champion miss 1.23 pts (floor 1.13), changed 1.52 | biggest predicted effect 5.6 pts
+    trained 4 passes over 161,295 games in 4s (validation log loss 0.6890)
+    game AUC 0.546 (log loss 0.6903 vs coin 0.6933) | champion miss 1.32 pts (floor 1.13), changed 1.64 | biggest predicted effect 3.9 pts
   16.5: training on 199,259 games from 10 earlier patch(es)
-    trained 4 passes over 179,190 games in 4s (validation log loss 0.6915)
-    game AUC 0.535 (log loss 0.6918 vs coin 0.6932) | champion miss 1.19 pts (floor 1.12), changed 1.52 | biggest predicted effect 2.2 pts
+    trained 3 passes over 179,190 games in 4s (validation log loss 0.6917)
+    game AUC 0.532 (log loss 0.6920 vs coin 0.6932) | champion miss 1.17 pts (floor 1.12), changed 1.47 | biggest predicted effect 1.8 pts
   16.6: training on 219,188 games from 11 earlier patch(es)
-    trained 4 passes over 197,102 games in 5s (validation log loss 0.6895)
-    game AUC 0.550 (log loss 0.6891 vs coin 0.6932) | champion miss 1.32 pts (floor 1.12), changed 1.51 | biggest predicted effect 2.9 pts
+    trained 4 passes over 197,102 games in 5s (validation log loss 0.6894)
+    game AUC 0.550 (log loss 0.6892 vs coin 0.6932) | champion miss 1.30 pts (floor 1.12), changed 1.59 | biggest predicted effect 3.7 pts
   16.7: training on 239,114 games from 12 earlier patch(es)
-    trained 6 passes over 215,014 games in 7s (validation log loss 0.6896)
-    game AUC 0.546 (log loss 0.6903 vs coin 0.6932) | champion miss 1.30 pts (floor 1.13), changed 1.36 | biggest predicted effect 0.5 pts
+    trained 4 passes over 215,014 games in 5s (validation log loss 0.6900)
+    game AUC 0.545 (log loss 0.6909 vs coin 0.6932) | champion miss 1.31 pts (floor 1.13), changed 1.34 | biggest predicted effect 1.2 pts
   16.8: training on 259,026 games from 13 earlier patch(es)
-    trained 4 passes over 232,961 games in 5s (validation log loss 0.6900)
-    game AUC 0.537 (log loss 0.6916 vs coin 0.6932) | champion miss 1.45 pts (floor 1.13), changed 1.45 | biggest predicted effect 0.3 pts
+    trained 4 passes over 232,961 games in 5s (validation log loss 0.6902)
+    game AUC 0.537 (log loss 0.6918 vs coin 0.6932) | champion miss 1.42 pts (floor 1.13), changed 1.30 | biggest predicted effect 1.0 pts
   16.9: training on 278,922 games from 14 earlier patch(es)
-    trained 5 passes over 250,842 games in 7s (validation log loss 0.6895)
-    game AUC 0.538 (log loss 0.6916 vs coin 0.6932) | champion miss 1.54 pts (floor 1.12), changed 1.22 | biggest predicted effect 2.3 pts
+    trained 4 passes over 250,842 games in 6s (validation log loss 0.6892)
+    game AUC 0.537 (log loss 0.6913 vs coin 0.6932) | champion miss 1.53 pts (floor 1.12), changed 0.82 | biggest predicted effect 1.3 pts
   16.10: training on 298,836 games from 15 earlier patch(es)
     trained 5 passes over 268,752 games in 7s (validation log loss 0.6899)
-    game AUC 0.539 (log loss 0.6913 vs coin 0.6931) | champion miss 1.38 pts (floor 1.13), changed 1.50 | biggest predicted effect 1.9 pts
+    game AUC 0.538 (log loss 0.6915 vs coin 0.6931) | champion miss 1.36 pts (floor 1.13), changed 1.44 | biggest predicted effect 1.4 pts
   16.11: training on 318,743 games from 16 earlier patch(es)
-    trained 5 passes over 286,672 games in 8s (validation log loss 0.6899)
-    game AUC 0.542 (log loss 0.6906 vs coin 0.6930) | champion miss 1.46 pts (floor 1.13), changed 2.07 | biggest predicted effect 0.4 pts
+    trained 7 passes over 286,672 games in 10s (validation log loss 0.6899)
+    game AUC 0.538 (log loss 0.6925 vs coin 0.6930) | champion miss 1.62 pts (floor 1.13), changed 2.83 | biggest predicted effect 1.0 pts
   16.12: training on 338,673 games from 17 earlier patch(es)
-    trained 7 passes over 304,600 games in 11s (validation log loss 0.6897)
-    game AUC 0.552 (log loss 0.6886 vs coin 0.6931) | champion miss 1.51 pts (floor 1.13), changed 1.38 | biggest predicted effect 1.3 pts
+    trained 7 passes over 304,600 games in 11s (validation log loss 0.6896)
+    game AUC 0.552 (log loss 0.6887 vs coin 0.6931) | champion miss 1.56 pts (floor 1.13), changed 1.64 | biggest predicted effect 2.5 pts
   16.13: training on 358,590 games from 18 earlier patch(es)
-    trained 5 passes over 322,478 games in 8s (validation log loss 0.6898)
-    game AUC 0.549 (log loss 0.6893 vs coin 0.6931) | champion miss 1.37 pts (floor 1.13), changed 1.08 | biggest predicted effect 1.8 pts
+    trained 4 passes over 322,478 games in 8s (validation log loss 0.6899)
+    game AUC 0.548 (log loss 0.6895 vs coin 0.6931) | champion miss 1.41 pts (floor 1.13), changed 1.15 | biggest predicted effect 1.2 pts
   16.14: training on 378,502 games from 19 earlier patch(es)
-    trained 5 passes over 340,419 games in 9s (validation log loss 0.6894)
-    game AUC 0.547 (log loss 0.6903 vs coin 0.6930) | champion miss 1.44 pts (floor 1.13), changed 1.80 | biggest predicted effect 0.3 pts
+    trained 3 passes over 340,419 games in 7s (validation log loss 0.6894)
+    game AUC 0.546 (log loss 0.6896 vs coin 0.6930) | champion miss 1.32 pts (floor 1.13), changed 1.39 | biggest predicted effect 0.5 pts
   16.15: training on 398,400 games from 20 earlier patch(es)
-    trained 8 passes over 358,362 games in 14s (validation log loss 0.6886)
-    game AUC 0.547 (log loss 0.6903 vs coin 0.6930) | champion miss 1.59 pts (floor 1.13), changed 2.14 | biggest predicted effect 2.1 pts
+    trained 8 passes over 358,362 games in 13s (validation log loss 0.6890)
+    game AUC 0.548 (log loss 0.6903 vs coin 0.6930) | champion miss 1.57 pts (floor 1.13), changed 2.21 | biggest predicted effect 2.0 pts
   16.16: training on 418,304 games from 21 earlier patch(es)
-    trained 6 passes over 376,309 games in 11s (validation log loss 0.6892)
-    game AUC 0.554 (log loss 0.6885 vs coin 0.6930) | champion miss 1.46 pts (floor 1.13), changed 1.50 | biggest predicted effect 1.3 pts
+    trained 6 passes over 376,309 games in 12s (validation log loss 0.6890)
+    game AUC 0.553 (log loss 0.6890 vs coin 0.6930) | champion miss 1.44 pts (floor 1.13), changed 1.46 | biggest predicted effect 1.2 pts
   16.17: training on 438,220 games from 22 earlier patch(es)
-    trained 9 passes over 394,238 games in 16s (validation log loss 0.6895)
-    game AUC 0.551 (log loss 0.6895 vs coin 0.6930) | champion miss 1.49 pts (floor 1.13), changed 1.39 | biggest predicted effect 1.7 pts
+    trained 5 passes over 394,238 games in 11s (validation log loss 0.6897)
+    game AUC 0.551 (log loss 0.6890 vs coin 0.6930) | champion miss 1.42 pts (floor 1.13), changed 1.03 | biggest predicted effect 1.4 pts
   16.18: training on 458,113 games from 23 earlier patch(es)
-    trained 4 passes over 412,161 games in 10s (validation log loss 0.6896)
-    game AUC 0.547 (log loss 0.6900 vs coin 0.6930) | champion miss 1.24 pts (floor 1.00), changed 0.92 | biggest predicted effect 0.5 pts
+    trained 7 passes over 412,161 games in 13s (validation log loss 0.6894)
+    game AUC 0.548 (log loss 0.6900 vs coin 0.6930) | champion miss 1.31 pts (floor 1.00), changed 0.99 | biggest predicted effect 0.9 pts
   16.19: training on 483,160 games from 24 earlier patch(es)
-    trained 5 passes over 434,698 games in 12s (validation log loss 0.6895)
-    game AUC 0.553 (log loss 0.6887 vs coin 0.6931) | champion miss 1.08 pts (floor 0.86), changed 0.91 | biggest predicted effect 0.5 pts
+    trained 5 passes over 434,698 games in 13s (validation log loss 0.6895)
+    game AUC 0.555 (log loss 0.6884 vs coin 0.6931) | champion miss 1.07 pts (floor 0.86), changed 0.94 | biggest predicted effect 1.1 pts
 
-Game level: AUC 0.541, log loss 0.6916 vs coin flip 0.6931
-Champion level: average miss 1.43 pts (noise floor 1.11); changed champions 1.51 pts (floor 1.03)
+Game level: AUC 0.542, log loss 0.6910 vs coin flip 0.6931
+Champion level: average miss 1.42 pts (noise floor 1.11); changed champions 1.54 pts (floor 1.03)
 Direction right for changed champions (100+ games): 54%  (50% = coin flip)
 
 Biggest predicted patch effects vs what happened:
-    16.4 KSante         predicted  -5.6  actual  -2.5  (1000 games, right)  total_heal_ratio_armor_bonus +0.1; total_heal_ratio_movespeed_bonus +0.1
-    16.1 Tristana       predicted  +3.9  actual  +1.7  (1125 games, right)  item_stat_buff +0.4; item_changed_share -0.2; total_physical_ratio_ad_bonus +0.1
-   15.22 Skarner        predicted  -3.8  actual  -6.1  (302 games, right)  ad_l16 -0.1
-    16.1 Nilah          predicted  +3.6  actual  +2.4  (426 games, right)  item_changed_share +0.1; item_stat_buff +0.1
-    16.2 Malphite       predicted  -3.2  actual  -0.8  (1713 games, right)  item_passive_buff -0.1; item_changed_share -0.1
-    16.1 Quinn          predicted  +3.0  actual  +3.2  (321 games, right)  item_changed_share -0.1
-    16.1 Lucian         predicted  +3.0  actual  +2.1  (2937 games, right)  item_changed_share -0.2; item_stat_buff +0.2
-    16.6 Shyvana        predicted  -2.9  actual  -2.5  (1671 games, right)  flag_truedamage +0.1; flag_unstoppable +0.1; basic_cd_r1_mean -0.1
-   15.20 Fizz           predicted  +2.9  actual  +4.0  (757 games, right)  total_magic_ratio_ap +0.1; total_dmg_ratio_ap +0.1
-    16.4 Kennen         predicted  -2.8  actual  +1.0  (769 games, wrong)  
-   15.24 Sejuani        predicted  -2.7  actual  -2.6  (458 games, right)  
-    16.1 Rengar         predicted  -2.7  actual  +3.1  (815 games, wrong)  item_changed_share -0.1; item_stat_buff +0.1
-    16.1 Jhin           predicted  -2.7  actual  -2.5  (2192 games, right)  item_stat_buff +0.2; item_changed_share -0.2
-   15.21 Yunara         predicted  +2.6  actual  +1.0  (2194 games, right)  total_magic_ratio_ad +0.1; item_changed_share -0.1
-    16.2 Rammus         predicted  -2.6  actual  -2.4  (368 games, right)  item_changed_share -0.1
+   15.21 Yunara         predicted  +4.7  actual  +1.4  (2194 games, right)  raw_buff +0.2; item_stat_buff +0.1; total_magic_ratio_ad +0.1
+    16.2 Malphite       predicted  -4.1  actual  -1.5  (1713 games, right)  item_stat_buff -0.4; ult_cd_rmax -0.2; item_passive_buff +0.1
+   15.21 Quinn          predicted  -4.0  actual  +2.0  (504 games, wrong)  raw_buff -0.1
+    16.4 KSante         predicted  -3.9  actual  +0.6  (1000 games, wrong)  total_heal_ratio_armor_bonus -0.4; total_heal_ratio_movespeed_bonus -0.1
+   15.20 Fizz           predicted  +3.7  actual  +3.4  (757 games, right)  raw_buff +0.2; total_magic_ratio_ap +0.1
+    16.6 Shyvana        predicted  -3.7  actual  -2.1  (1671 games, right)  total_physical_base_rmax -0.1; flag_unstoppable -0.1; flag_shield -0.1
+    16.1 Kindred        predicted  -3.6  actual  -2.0  (433 games, right)  total_heal_ratio_stat8 -0.1; item_changed_share -0.1; raw_pve_buff +0.1
+    16.1 Lucian         predicted  +3.5  actual  +1.8  (2937 games, right)  item_passive_buff +0.1; raw_buff +0.1; item_stat_buff +0.1
+    16.1 Yunara         predicted  -3.1  actual  +1.7  (2341 games, wrong)  item_stat_buff +0.1; raw_buff +0.1; item_changed_share -0.1
+    16.2 Aatrox         predicted  +3.0  actual  +3.0  (1556 games, right)  item_stat_buff +0.2; raw_pve_buff +0.1
+   15.21 KogMaw         predicted  -3.0  actual  +2.3  (376 games, wrong)  item_stat_buff +0.1; raw_buff -0.1
+    16.2 Nunu           predicted  -2.7  actual  -6.6  (617 games, right)  item_stat_buff -0.3
+    16.3 Mel            predicted  -2.7  actual  -2.3  (985 games, right)  raw_pve_buff +0.2; total_shield_ratio_ap -0.1
+    16.2 MasterYi       predicted  +2.6  actual  +0.8  (966 games, right)  item_stat_buff +0.1
+    16.1 Elise          predicted  -2.5  actual  -0.6  (952 games, right)  raw_pve_buff +0.1
 
 Training the final model on all games ...
-    trained 9 passes over 465,727 games in 18s (validation log loss 0.6889)
+    trained 10 passes over 465,727 games in 20s (validation log loss 0.6885)
   saved models/strength_model.pt
   champions the numbers explain least (their own correction, points):
      Ezreal         -3.3
-     RekSai         +2.5
-     Azir           -2.5
-     Kindred        +2.4
-     Quinn          +2.0
-     Corki          -2.0
-     Leona          +1.7
-     Ryze           -1.7
--- done in 3.3 min, peak RAM so far 3.7 GB
+     RekSai         +2.4
+     Azir           -2.3
+     Yunara         -2.3
+     Kindred        +2.3
+     Yuumi          -2.1
+     Quinn          +1.9
+     Akshan         +1.8
+-- done in 3.1 min, peak RAM so far 3.7 GB
 
 ======================================================================
 [8/8] Diagnostics report
@@ -456,6 +469,6 @@ Saved training\diagnostics_breakdown.csv
 In short: average miss 1.27 pts, of which luck explains 1.10; the model's own error is 0.80 pts. 92% of predictions are within 2 luck wobbles (luck alone: 95%).
 -- done in 3s, peak RAM so far 3.7 GB
 
-All 8 steps finished in 6.1 min. Full output saved to pipeline.log
+All 8 steps finished in 5.9 min. Full output saved to pipeline.log
 Diagnostics: open report.html in your browser.
-Copied 16 result files to results\ (to share: git add results, commit, push)
+Copied 18 result files to results\ (to share: git add results, commit, push)
