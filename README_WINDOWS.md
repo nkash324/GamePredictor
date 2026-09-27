@@ -228,6 +228,20 @@ Two parts:
 - **Change model**: how much this patch's changes move the champion, learned from past
   patches. Buffs and nerfs are scored separately (nerfs can hurt more than buffs help).
   Reworks (25+ changed numbers) are flagged rather than read as % changes.
+- **Direction rules:** more damage, shorter cooldowns, more health, an item buff etc. can
+  only push a champion's winrate up (and the reverse for nerfs). If the data would make
+  one of these point the wrong way, that input is left out instead.
+- **Overall power change:** each changed champion also gets three summary numbers:
+  damage power (typical damage at a mid-game build, faster cooldowns counting as more
+  damage), survivability (effective HP plus healing and shielding) and their sum.
+- **Performance route:** win/loss is one very noisy bit per game. Damage, gold, CS,
+  healing, deaths, gold/XP at 15 and pick+ban rate react to balance changes far more
+  clearly. So the model also learns (1) how balance changes move those stats and (2) how
+  those predicted stat changes turn into winrate. Step 2 only sees step-1 predictions
+  made without the patch in question, so a champion that simply won more (and therefore
+  also dealt more damage) can't fool it. For each patch the model uses whichever route
+  worked best on the patches before: direct, perf or an average of both ("route" in the
+  output and report).
 
 Every changed champion gets two predictions:
 

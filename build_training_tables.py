@@ -517,6 +517,73 @@ def add_item_scores(con, cp, games, out_dir):
     return cp
 
 
+# --------------------------------------------------------------------------- #
+# Performance stats per champion and patch (much less noisy than winrate)
+# --------------------------------------------------------------------------- #
+# per-minute stats from the end-of-game summary: name -> participants column
+PERF_PER_MIN = {"dmg": "damage_to_champs", "taken": "damage_taken", "heal": "healing",
+                "gold": "gold_earned", "cs": "cs", "kills": "kills", "deaths": "deaths"}
+PERF_STATS = list(PERF_PER_MIN) + ["gold15", "xp15"]
+
+
+def champion_perf(con, games):
+    """Average per-minute performance of each champion on each patch (+ gold / XP at 15
+    minutes where timelines exist). Columns perf_<stat> and perf_<stat>_n (players)."""
+    info = games.set_index("match_id")[["patch", "aux_duration_min"]]
+    cols = ", ".join(f"{c}" for c in PERF_PER_MIN.values())
+    sums = []
+    try:
+        chunks = pd.read_sql_query(f"SELECT match_id, champion_id AS champ_key, {cols} "
+                                   f"FROM participants", con, chunksize=400_000)
+        for chunk in chunks:
+            chunk = chunk.join(info, on="match_id", how="inner")
+            if chunk.empty:
+                continue
+            mins = chunk["aux_duration_min"].clip(lower=10)
+            per = pd.DataFrame({"patch": chunk["patch"], "champ_key": chunk["champ_key"]})
+            for name, col in PERF_PER_MIN.items():
+                per[name] = pd.to_numeric(chunk[col], errors="coerce") / mins
+            per["n"] = 1
+            sums.append(per.groupby(["patch", "champ_key"]).sum(min_count=1))
+    except Exception as e:  # older databases without these columns
+        print(f"  (performance stats skipped: {e})")
+        return pd.DataFrame(columns=["patch", "champ_key"])
+    if not sums:
+        return pd.DataFrame(columns=["patch", "champ_key"])
+    tot = pd.concat(sums).groupby(level=[0, 1]).sum()
+    out = pd.DataFrame(index=tot.index)
+    for name in PERF_PER_MIN:
+        out[f"perf_{name}"] = tot[name] / tot["n"]
+    out["perf_n"] = tot["n"]
+    out = out.reset_index()
+    # gold and XP at 15 minutes (timelines exist for ~25% of games)
+    try:
+        t = pd.read_sql_query("""
+            SELECT m.patch, p.champion_id AS champ_key, AVG(f.gold) AS perf_gold15,
+                   AVG(f.xp) AS perf_xp15, COUNT(*) AS perf_n15
+            FROM timeline_frames f
+            JOIN participants p ON p.match_id = f.match_id AND p.participant_id = f.participant_id
+            JOIN matches m ON m.match_id = f.match_id
+            WHERE f.minute = 15 GROUP BY m.patch, p.champion_id""", con)
+        out = out.merge(t, on=["patch", "champ_key"], how="left")
+        few = out["perf_n15"].fillna(0) < 30
+        out.loc[few, ["perf_gold15", "perf_xp15"]] = np.nan
+    except Exception:
+        pass
+    out["champ_key"] = out["champ_key"].astype(int)
+    return out
+
+
+def add_perf(cp, perf):
+    if perf is None or perf.empty:
+        return cp
+    cp = cp.merge(perf, on=["patch", "champ_key"], how="left")
+    cols = [c for c in perf.columns if c.startswith("perf_") and not c.startswith("perf_n")]
+    prev = cp[["patch", "champ_key"] + cols].rename(columns={"patch": "prev_patch"})
+    prev = prev.rename(columns={c: f"prev_{c}" for c in cols})
+    return cp.merge(prev, on=["prev_patch", "champ_key"], how="left")
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(description="Build model training tables.")
     ap.add_argument("--db", default="lol_data.db")
@@ -546,6 +613,10 @@ def main(argv=None):
     cp = build_champion_patch(con, games, parts, vec, feats)
     del parts
     cp = add_item_scores(con, cp, games, args.out)
+    cp = add_perf(cp, champion_perf(con, games))
+    if "perf_dmg" in cp:
+        print(f"Performance stats (damage, gold, CS, ... per minute): "
+              f"{cp['perf_dmg'].notna().sum():,} champion-patches{memlimit.ram_note()}", flush=True)
     if "item_stat_buff" in cp:
         aff = (cp["item_changed_share"] > 0.1).sum()
         print(f"Item changes: {cp.loc[cp['item_changed_share'] > 0, 'patch'].nunique()} patches with "

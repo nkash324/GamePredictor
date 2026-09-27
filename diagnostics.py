@@ -696,7 +696,7 @@ def sec_patches(cres, bres):
                   "best": (c["model"] * 100).values}
         parts.append(svg_lines(order, series, "avg miss (points)",
                                ref=("luck floor", (c["floor"] * 100).values)))
-        cols = ["train patches", "best on", "floor", "last", "shrunk", "model", "changed",
+        cols = ["train patches", "best on", "route", "floor", "last", "shrunk", "model", "changed",
                 "shrunk ch", "model ch", "bold ch", "direction", "top3 direction"]
         t = c[[x for x in cols if x in c]].rename(columns={
             "shrunk": "base", "model": "best", "shrunk ch": "base ch", "model ch": "best ch",
@@ -711,7 +711,10 @@ def sec_patches(cres, bres):
         parts.append("<p class='cap'><b>base</b> = strength model only, <b>best</b> = + best-guess "
                      "effect, <b>bold ch</b> = miss of bold predictions on changed champions, "
                      "<b>bold dir</b> = bold direction right (100+ games), <b>top-3 dir</b> = same "
-                     "for the 3 biggest predicted movers.</p>")
+                     "for the 3 biggest predicted movers. <b>route</b> = how the patch effect was "
+                     "predicted: <i>direct</i> (balance numbers straight to winrate), <i>perf</i> "
+                     "(balance numbers to damage, gold, CS, pick rate ... then to winrate) or "
+                     "<i>avg</i> (both), whichever worked best on the patches before.</p>")
     if bres is not None and len(bres):
         b = bres.copy()
         b["patch"] = b["patch"].astype(str)

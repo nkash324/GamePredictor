@@ -133,6 +133,34 @@ def recent_strength(cp, decay=HIST_DECAY, with_games=False):
     return (r, pd.Series(hg, index=cp.index)) if with_games else r
 
 
+TYPICAL_AP, TYPICAL_BONUS_AD = 150.0, 100.0   # a mid-game build, for "typical damage"
+
+
+def power_changes(cp):
+    """Relative change (e.g. +0.06 = 6% stronger) in damage power and survivability."""
+    def col(c):
+        return cp[c].fillna(0) if c in cp else pd.Series(0.0, index=cp.index)
+
+    def old(c):
+        return col(c) - (cp[f"delta_{c}"].fillna(0) if f"delta_{c}" in cp else 0)
+
+    def rel(new, prev):
+        return ((new - prev) / prev.abs().where(prev.abs() > 1e-9)).fillna(0).clip(-MAX_REL, MAX_REL)
+
+    dmg_new = (col("total_dmg_base_rmax") + TYPICAL_AP * col("total_dmg_ratio_ap")
+               + TYPICAL_BONUS_AD * col("total_dmg_ratio_ad_all"))
+    dmg_old = (old("total_dmg_base_rmax") + TYPICAL_AP * old("total_dmg_ratio_ap")
+               + TYPICAL_BONUS_AD * old("total_dmg_ratio_ad_all"))
+    cd_rel = rel(col("basic_cd_rmax_mean"), old("basic_cd_rmax_mean"))
+    dmg_power = (rel(dmg_new, dmg_old) - 0.5 * cd_rel).clip(-MAX_REL, MAX_REL)
+    surv = (rel(col("ehp_phys_l9"), old("ehp_phys_l9"))
+            + 0.3 * rel(col("total_heal_base_rmax"), old("total_heal_base_rmax"))
+            + 0.3 * rel(col("total_shield_base_rmax"), old("total_shield_base_rmax")))
+    surv_power = surv.clip(-MAX_REL, MAX_REL)
+    return {"dmg_power": dmg_power, "surv_power": surv_power,
+            "power_change": (dmg_power + surv_power).clip(-MAX_REL, MAX_REL)}
+
+
 def build_features(cp):
     cp = cp.copy()
     cp = cp.sort_values("patch", key=lambda s: s.map(pkey))
@@ -168,6 +196,15 @@ def build_features(cp):
     for f in LEAN_CHANGES:
         if f in rel:
             feats[f"rel_{f}"] = rel[f][0]
+    # one overall POWER CHANGE per champion, instead of dozens of separate numbers:
+    #   damage power   = typical damage (base + AP/AD ratios at a mid-game build), faster
+    #                    cooldowns counting as more damage
+    #   survivability  = effective HP at level 9, plus healing / shielding
+    power = power_changes(cp)
+    for k, v in power.items():
+        v = v.copy()
+        v[rework | not_changed] = 0.0
+        feats[k] = v
     feats["n_changes"] = np.log1p(cp["n_changes"].fillna(0))
     feats["rework"] = rework.astype(float)
     feats["prev_strength"] = (cp["recent_winrate"] - 0.5).fillna(0)
@@ -249,22 +286,58 @@ class StrengthModel:
 # --------------------------------------------------------------------------- #
 # Part 2: change model (weighted ridge regression on standardized features)
 # --------------------------------------------------------------------------- #
+def feature_signs(cols):
+    """Direction rules: +1 = this input can only push winrate UP when it goes up
+    (e.g. more damage, an item buff), -1 = only down. Inputs not listed are free."""
+    signs = {}
+    for c in cols:
+        if c.startswith("rel_") and c[4:] in CHANGE_FEATURES:
+            signs[c] = CHANGE_FEATURES[c[4:]]
+        elif c in ("buff_part", "nerf_part", "dmg_power", "surv_power", "power_change",
+                   "item_stat_buff", "item_passive_buff"):
+            signs[c] = 1
+    return signs
+
+
 class ChangeModel:
-    def fit(self, X, y, w, alpha):
+    """Weighted ridge regression; optional direction rules (sign constraints) solved by
+    dropping, one at a time, any input whose learned direction breaks its rule."""
+
+    def __init__(self, clip=MAX_EFFECT):
+        self.clip = clip
+
+    def fit(self, X, y, w, alpha, signs=None):
         self.cols = list(X.columns)
         self.off = len(y) < 10
+        self.coef, self.b0 = np.zeros(len(self.cols)), 0.0
         if self.off:
-            self.coef, self.b0 = np.zeros(len(self.cols)), 0.0
             return self
         A = X.values.astype(float)
         self.mu, self.sd = A.mean(0), A.std(0)
         self.sd[self.sd == 0] = 1
         Z = (A - self.mu) / self.sd
         sw = np.sqrt(w / w.mean())[:, None]
-        Zw, yw = Z * sw, y * sw[:, 0]
+        Zw = Z * sw
         self.b0 = float(np.average(y, weights=w))
-        self.coef = np.linalg.solve(Zw.T @ Zw + alpha * np.eye(Z.shape[1]),
-                                    Zw.T @ (yw - self.b0 * sw[:, 0]))
+        yw = (y - self.b0) * sw[:, 0]
+        sgn = np.array([(signs or {}).get(c, 0) for c in self.cols], dtype=float)
+        free = np.ones(len(self.cols), dtype=bool)
+        self.dropped = []
+        for _ in range(len(self.cols)):
+            idx = np.flatnonzero(free)
+            if not len(idx):
+                break
+            A_ = Zw[:, idx]
+            c = np.linalg.solve(A_.T @ A_ + alpha * np.eye(len(idx)), A_.T @ yw)
+            coef = np.zeros(len(self.cols))
+            coef[idx] = c
+            viol = coef * sgn < -1e-12
+            if not viol.any():
+                break
+            worst = int(np.argmin(np.where(viol, coef * sgn, np.inf)))
+            free[worst] = False                     # this input breaks its rule: leave it out
+            self.dropped.append(self.cols[worst])
+        self.coef = coef
         return self
 
     def _z(self, X):
@@ -273,10 +346,10 @@ class ChangeModel:
     def predict(self, X):
         if self.off:
             return np.zeros(len(X))
-        return np.clip(self.b0 + self._z(X) @ self.coef, -MAX_EFFECT, MAX_EFFECT)
+        return np.clip(self.b0 + self._z(X) @ self.coef, -self.clip, self.clip)
 
     def contributions(self, X):
-        """Per row: how much each input pushed the prediction (points of winrate)."""
+        """Per row: how much each input pushed the prediction."""
         if self.off:
             return pd.DataFrame(0.0, index=X.index, columns=self.cols)
         return pd.DataFrame(self._z(X) * self.coef, index=X.index, columns=self.cols)
@@ -289,7 +362,94 @@ class ChangeModel:
 def fit_change(rows, X, base, alpha):
     ch = rows[rows["affected"] == 1]
     y = (ch["winrate"] - base.predict(ch)).values
-    return ChangeModel().fit(X.loc[ch.index], y, ch["games"].values.astype(float), alpha)
+    return ChangeModel().fit(X.loc[ch.index], y, ch["games"].values.astype(float), alpha,
+                             signs=feature_signs(X.columns))
+
+
+# --------------------------------------------------------------------------- #
+# Part 2b: the performance route  (balance changes -> performance -> winrate)
+# --------------------------------------------------------------------------- #
+# How each performance stat may relate to winrate (direction rules for step 2)
+PERF_MAP_SIGNS = {"perf_dmg": 1, "perf_gold": 1, "perf_cs": 1, "perf_kills": 1,
+                  "perf_deaths": -1, "perf_heal": 1, "perf_gold15": 1, "perf_xp15": 1,
+                  "presence": 1}
+PERF_ALPHA, MAP_ALPHA = 300.0, 30.0
+PERF_NAMES = {"perf_dmg": "damage/min", "perf_taken": "damage taken/min", "perf_heal": "healing/min",
+              "perf_gold": "gold/min", "perf_cs": "CS/min", "perf_kills": "kills/min",
+              "perf_deaths": "deaths/min", "perf_gold15": "gold@15", "perf_xp15": "XP@15",
+              "presence": "pick+ban rate"}
+
+
+def perf_targets(rows):
+    """What each performance stat did this patch: relative change from last patch
+    (pick+ban rate: plain change). NaN where unknown."""
+    out = {}
+    for c in [c for c in rows.columns if c.startswith("perf_") and f"prev_{c}" in rows
+              and not c.startswith("perf_n")]:
+        prev = rows[f"prev_{c}"]
+        out[c] = ((rows[c] - prev) / prev.abs().where(prev.abs() > 1e-9)).clip(-0.5, 0.5)
+    if "pickrate" in rows and "prev_pickrate" in rows:
+        out["presence"] = ((rows["pickrate"].fillna(0) + rows["banrate"].fillna(0))
+                           - (rows["prev_pickrate"].fillna(0) + rows["prev_banrate"].fillna(0)))
+    return pd.DataFrame(out, index=rows.index)
+
+
+class PerfRoute:
+    """Step 1: learn how balance changes move each performance stat (damage, gold, ... -
+    these are far less noisy than winrate, so the same few changed champions teach much
+    more). Step 2: learn how those predicted stat changes translate into winrate.
+    Step 2 is trained on step-1 PREDICTIONS made without the patch being predicted, so a
+    champion that won by luck (and so also dealt more damage) can't fool it."""
+
+    def fit(self, rows, X, base):
+        self.off = True
+        ch = rows[rows["affected"] == 1]
+        T = perf_targets(ch)
+        self.targets = [c for c in T.columns if T[c].notna().sum() >= 30]
+        if len(ch) < 30 or not self.targets:
+            return self
+        w = ch["games"].values.astype(float)
+        # step 1 on all training patches (used for predicting new patches)
+        self.step1 = {}
+        for t in self.targets:
+            ok = T[t].notna().values
+            self.step1[t] = ChangeModel(clip=0.5).fit(X.loc[ch.index[ok]], T[t].values[ok], w[ok],
+                                                      PERF_ALPHA)
+        # step-1 predictions for each training patch, made WITHOUT that patch
+        oof = pd.DataFrame(np.nan, index=ch.index, columns=self.targets)
+        for q in ch["patch"].unique():
+            inq = (ch["patch"] == q).values
+            if (~inq).sum() < 20:
+                continue
+            for t in self.targets:
+                ok = T[t].notna().values & ~inq
+                if ok.sum() < 20:
+                    continue
+                m = ChangeModel(clip=0.5).fit(X.loc[ch.index[ok]], T[t].values[ok], w[ok], PERF_ALPHA)
+                oof.loc[ch.index[inq], t] = m.predict(X.loc[ch.index[inq]])
+        good = oof.notna().all(axis=1).values
+        if good.sum() < 20:
+            return self
+        y = (ch["winrate"] - base.predict(ch)).values
+        self.step2 = ChangeModel().fit(oof[good], y[good], w[good], MAP_ALPHA,
+                                       signs={t: PERF_MAP_SIGNS.get(t, 0) for t in self.targets})
+        self.n_rows = int(good.sum())
+        self.off = self.step2.off
+        return self
+
+    def stat_changes(self, Xr):
+        return pd.DataFrame({t: m.predict(Xr) for t, m in self.step1.items()}, index=Xr.index)
+
+    def predict(self, Xr):
+        if self.off:
+            return np.zeros(len(Xr))
+        return self.step2.predict(self.stat_changes(Xr))
+
+    def contributions(self, Xr):
+        if self.off:
+            return pd.DataFrame(index=Xr.index)
+        c = self.step2.contributions(self.stat_changes(Xr))
+        return c.rename(columns=lambda t: f"via {PERF_NAMES.get(t, t)}")
 
 
 def noise_var(rows):
@@ -297,11 +457,22 @@ def noise_var(rows):
     return (p * (1 - p) / rows["games"]).values
 
 
+ROUTES = ("direct", "perf", "avg")
+
+
+def route_effect(route, direct_eff, perf_eff):
+    if route == "direct":
+        return direct_eff
+    if route == "perf":
+        return perf_eff
+    return 0.5 * (direct_eff + perf_eff)
+
+
 def choose_settings(rows, X, patches):
-    """From the latest training patches (each predicted from the ones before it):
-    ridge strength, whether the best guess beats 'no effect', the bold scale and how
-    uncertain predictions are."""
-    default = {"alpha": 300.0, "on": False, "scale": 3.0, "sd_true": 0.02}
+    """From the latest training patches (each predicted from the ones before it): which
+    route works best (direct / via performance stats / average of both), ridge strength,
+    whether it beats 'no effect', the bold scale and how uncertain predictions are."""
+    default = {"alpha": 300.0, "route": "direct", "on": False, "scale": 3.0, "sd_true": 0.02}
     if len(patches) < 3:
         return default
     val_patches = patches[-3:] if len(patches) >= 4 else patches[-1:]
@@ -312,22 +483,29 @@ def choose_settings(rows, X, patches):
         if va.empty or (tr["affected"] == 1).sum() < 10:
             continue
         base = StrengthModel().fit(tr)
-        folds.append((tr, va, base, (va["winrate"] - base.predict(va)).values))
+        perf = PerfRoute().fit(tr, X, base)
+        folds.append((tr, va, base, (va["winrate"] - base.predict(va)).values,
+                      perf.predict(X.loc[va.index])))
     if not folds:
         return default
     va_all = pd.concat([f[1] for f in folds])
     w = va_all["games"].values.astype(float)
     actual = np.concatenate([f[3] for f in folds])
+    perf_eff = np.concatenate([f[4] for f in folds])
     nvar = noise_var(va_all)
     err0 = wavg(np.abs(actual), w)
     best = None
     for a in ALPHAS:
-        eff = np.concatenate([fit_change(tr, X, base, a).predict(X.loc[va.index])
-                              for tr, va, base, _ in folds])
-        err = wavg(np.abs(actual - eff), w)
-        if best is None or err < best[0]:
-            best = (err, a, eff)
-    err, alpha, eff = best
+        direct = np.concatenate([fit_change(tr, X, base, a).predict(X.loc[va.index])
+                                 for tr, va, base, _, _ in folds])
+        for route in ROUTES:
+            if route != "direct" and not np.any(perf_eff):
+                continue
+            eff = route_effect(route, direct, perf_eff)
+            err = wavg(np.abs(actual - eff), w)
+            if best is None or err < best[0]:
+                best = (err, a, route, eff)
+    err, alpha, route, eff = best
     on = err < err0 * (1 - SWITCH_ON_GAIN)
     # bold: scale predictions so their spread matches the spread of REAL changes (after
     # removing the part of the spread that is just luck)
@@ -336,24 +514,42 @@ def choose_settings(rows, X, patches):
     scale = float(np.clip(sd_real / sd_pred, *BOLD_SCALE_RANGE)) if sd_pred > 1e-5 else 1.0
     used = eff if on else np.zeros_like(eff)
     sd_true = np.sqrt(max(wavg((actual - used) ** 2, w) - wavg(nvar, w), 0.0))
-    return {"alpha": float(alpha), "on": bool(on), "scale": scale, "sd_true": max(sd_true, 0.005)}
+    return {"alpha": float(alpha), "route": route, "on": bool(on), "scale": scale,
+            "sd_true": max(sd_true, 0.005)}
 
 
 class Predictor:
-    """Strength model + change model + settings, trained on `rows` (earlier patches)."""
+    """Strength model + change model(s) + settings, trained on `rows` (earlier patches)."""
 
     def __init__(self, rows, X, patches):
         self.base = StrengthModel().fit(rows)
         self.s = choose_settings(rows, X, patches)
         self.change = fit_change(rows, X, self.base, self.s["alpha"])
+        self.perf = PerfRoute().fit(rows, X, self.base) if self.s["route"] != "direct" else None
+
+    def _raw(self, rows, X):
+        Xr = X.loc[rows.index]
+        direct = self.change.predict(Xr)
+        perf = self.perf.predict(Xr) if self.perf is not None else np.zeros(len(Xr))
+        raw = pd.Series(route_effect(self.s["route"], direct, perf), index=rows.index)
+        raw[rows["affected"] != 1] = 0.0         # only champions touched by the patch get an effect
+        return raw
 
     def parts(self, rows, X):
         base = self.base.predict(rows)
-        raw = pd.Series(self.change.predict(X.loc[rows.index]), index=rows.index)
-        raw[rows["affected"] != 1] = 0.0         # only champions touched by the patch get an effect
+        raw = self._raw(rows, X)
         best = raw if self.s["on"] else raw * 0.0
         bold = (raw * self.s["scale"]).clip(-MAX_BOLD, MAX_BOLD)
         return base, best, bold
+
+    def contributions(self, rows, X):
+        Xr = X.loc[rows.index]
+        parts = []
+        if self.s["route"] in ("direct", "avg"):
+            parts.append(self.change.contributions(Xr) * (0.5 if self.s["route"] == "avg" else 1))
+        if self.perf is not None and self.s["route"] in ("perf", "avg"):
+            parts.append(self.perf.contributions(Xr) * (0.5 if self.s["route"] == "avg" else 1))
+        return pd.concat(parts, axis=1) if parts else pd.DataFrame(index=rows.index)
 
     @property
     def alpha_shown(self):
@@ -420,7 +616,7 @@ def evaluate(cp, X):
         top_mask &= bold.abs() > 0.005
         rows.append({
             "patch": p, "train patches": len(past), "alpha": pr.alpha_shown,
-            "alpha_fit": pr.s["alpha"], "bold scale": pr.s["scale"],
+            "alpha_fit": pr.s["alpha"], "bold scale": pr.s["scale"], "route": pr.s["route"],
             "floor": np.average(floor, weights=w),
             "last": mae(last), "shrunk": mae(base), "model": mae(pred), "bold": mae(pred_bold),
             "changed": int(ch.sum()),
@@ -460,7 +656,7 @@ def evaluate(cp, X):
         d["noise_sd"] = np.sqrt(pbar * (1 - pbar) / w).values
         d["z"] = d["error"] / d["noise_sd"]        # |z| > 2: bigger miss than luck explains
         d["model_on"] = int(pr.s["on"])
-        contrib = pr.change.contributions(X.loc[te.index])
+        contrib = pr.contributions(te, X)
         d["why"] = [top_reasons(contrib.loc[i], ch.loc[i]) for i in te.index]
         detail.append(d)
     return pd.DataFrame(rows), (pd.concat(detail) if detail else pd.DataFrame())
@@ -478,12 +674,15 @@ def print_eval(res, detail):
     print("  base   = strength model (recent + long-term winrate, popularity)")
     print("  best   = base + best-guess effect of the balance changes")
     print("  bold   = base + bold effect (sized like real patch swings)")
-    print("  alpha  = how strongly the best guess is held back ('none' = switched off)\n")
-    print(f"{'patch':>7} {'alpha':>6} | {'ALL champions':^27} | {'CHANGED champions only':^44}")
-    print(f"{'':>7} {'':>6} | {'floor':>5} {'last':>6} {'base':>6} {'best':>6} | {'n':>3} {'floor':>5} "
+    print("  alpha  = how strongly the best guess is held back ('none' = switched off)")
+    print("  route  = direct (balance numbers -> winrate), perf (balance numbers -> damage, gold,")
+    print("           ... -> winrate) or avg (both), whichever did best on the latest patches\n")
+    print(f"{'patch':>7} {'alpha':>6} {'route':>6} | {'ALL champions':^27} | {'CHANGED champions only':^44}")
+    print(f"{'':>7} {'':>6} {'':>6} | {'floor':>5} {'last':>6} {'base':>6} {'best':>6} | {'n':>3} {'floor':>5} "
           f"{'last':>6} {'base':>6} {'best':>6} {'bold':>6} {'dir':>5}")
     for _, r in res.iterrows():
-        print(f"{r['patch']:>7} {a(r['alpha'])} | {f(r['floor'])} {f(r['last']):>6} {f(r['shrunk']):>6} "
+        print(f"{r['patch']:>7} {a(r['alpha'])} {str(r.get('route', '')):>6} | {f(r['floor'])} "
+              f"{f(r['last']):>6} {f(r['shrunk']):>6} "
               f"{f(r['model']):>6} | {int(r['changed']):>3} {f(r['floor ch'])} {f(r['last ch']):>6} "
               f"{f(r['shrunk ch']):>6} {f(r['model ch']):>6} {f(r['bold ch']):>6} {g(r['direction'])}")
     w = res["changed"].clip(lower=1)
@@ -501,6 +700,8 @@ def print_eval(res, detail):
           f"{np.nansum(res['top3 direction'] * res['top3 n']) / max(res['top3 n'].sum(), 1):.0%} "
           f"of {int(res['top3 n'].sum())}")
     print("  (50% = coin flip)")
+    if "route" in res:
+        print("Route chosen: " + ", ".join(f"{k} {v}x" for k, v in res["route"].value_counts().items()))
     if len(detail):
         dd = detail[detail["changed"] == 1]
         top = dd.reindex(dd["bold"].abs().sort_values(ascending=False).index).head(15)
@@ -544,7 +745,8 @@ def predict_patch(cp, X, target):
     print(f"Strength model: a champion is half-trusted after {d['trust_games']:,} games; weights "
           f"recent {d['recent_weight']:.2f}, long-term {d['long_term_weight']:.2f}, "
           f"popularity {d['popularity_weight']:+.2f}")
-    print(f"Best guess {'ON' if pr.s['on'] else 'OFF (did not beat no-effect on recent patches)'}; "
+    print(f"Route: {pr.s['route']} | Best guess "
+          f"{'ON' if pr.s['on'] else 'OFF (did not beat no-effect on recent patches)'}; "
           f"bold = {pr.s['scale']:.1f}x the model's raw effect. Likely range: +-"
           f"{1.96 * pr.s['sd_true'] * 100:.1f} pts around the best guess.\n")
     chg = out[out["affected"] == 1].sort_values("bold_change")
@@ -572,6 +774,11 @@ def predict_patch(cp, X, target):
     print("\nWhat the change model has learned matters most (standardized weights, points):")
     for name, v in ([] if pr.change.off else pr.change.top(10).items()):
         print(f"  {name:<30} {v * 100:+.2f}")
+    if pr.perf is not None and not pr.perf.off:
+        print("\nPerformance route - how predicted stat changes turn into winrate (points per "
+              "typical change):")
+        for name, v in pr.perf.step2.top(10).items():
+            print(f"  {PERF_NAMES.get(name, name):<30} {v * 100:+.2f}")
 
 
 def save_weights(cp, X, out_dir):
@@ -583,7 +790,13 @@ def save_weights(cp, X, out_dir):
     m = pr.change
     w = pd.DataFrame({"feature": m.cols, "weight": m.coef,
                       "used_by_changed": (X.loc[ev.index[ch], m.cols] != 0).sum().values})
+    perf = pr.perf if pr.perf is not None else PerfRoute().fit(ev, X, pr.base)
+    if not perf.off:
+        pw = pd.DataFrame({"feature": [f"via {PERF_NAMES.get(t, t)}" for t in perf.step2.cols],
+                           "weight": perf.step2.coef, "used_by_changed": perf.n_rows})
+        w = pd.concat([w, pw], ignore_index=True)
     w = w.reindex(w["weight"].abs().sort_values(ascending=False).index)
+    w["route"] = pr.s["route"]
     d = pr.base.describe()
     w["alpha"] = pr.s["alpha"]
     w["switched_on"] = int(pr.s["on"])
