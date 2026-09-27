@@ -26,3 +26,6 @@ training/
 
 # trained models (rebuilt by train_game_model.py)
 models/
+
+# --- small result files, copied here by run_pipeline.py after each run (shared via git) ---
+!results/pipeline.log

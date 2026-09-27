@@ -104,6 +104,14 @@ which opens in your browser when it's done). It stops with a clear message if an
 - `python run_pipeline.py --only-data` updates the data and tables, but not the model.
 - `update_model.bat --max-ram-gb 6` changes the RAM limit (see below).
 
+### Sharing results
+
+After every run, `update_model.bat` copies the small result files (pipeline.log,
+report.html, the model CSVs) into the `results` folder. To send them to GitHub,
+double-click **`share_results.bat`** (or run `git add results`, `git commit -m results`,
+`git push`). Then `git pull` on the other computer. The database, games table and models
+stay out of git.
+
 ### RAM limit
 
 The update is limited to **7 GB of RAM** by default (all steps together), so it can't
@@ -205,6 +213,48 @@ champions plus the strongest and weakest predicted champions, and saves every ch
 `training/predicted_changes_<patch>.csv`. It works for a brand-new patch before any games
 are played, as soon as its balance data is loaded.
 
+### Game model options
+
+```
+python train_game_model.py --engine xgboost --gpu   # XGBoost on the graphics card
+python train_game_model.py --test-last 5            # only test the latest 5 patches (faster)
+```
+
+- `--engine lightgbm` (default) or `--engine xgboost` (needs `pip install xgboost`). Both
+  use the same technique and give similar accuracy. XGBoost is faster on an NVIDIA GPU.
+- `--gpu` trains on the graphics card and falls back to the CPU if it can't.
+- The same options work on the whole update: `update_model.bat --engine xgboost --gpu --test-last 5`.
+
+## Champion strength model
+
+```
+python train_strength_model.py                  # tests on the latest 6 patches + final model
+python train_strength_model.py --predict 16.19  # predicted winrate for every champion
+```
+
+A small neural network turns each champion's numbers (and role) into a strength score.
+The same network scores all 10 champions in a game, so it learns what numbers are worth
+from every game, not just from champions that were changed. Lane matchups and team mix
+are added on top. A nerf changes that champion's score directly, so patch effects aren't
+diluted. `--predict` shows which changed numbers caused each champion's predicted change.
+
+It runs as part of `update_model.bat` (skipped with a note if PyTorch isn't installed;
+`--skip-strength` leaves it out). Results appear in report.html next to the other models.
+
+**Installing PyTorch with GPU support (NVIDIA, e.g. RTX 3060 Ti).** Plain `pip install torch`
+installs a CPU-only version on Windows. Instead, go to https://pytorch.org/get-started/locally/,
+choose Stable / Windows / Pip / Python / the newest CUDA version, and run the command it
+shows, which looks like:
+```
+pip install torch --index-url https://download.pytorch.org/whl/cu126
+```
+Check it worked (should print True and your card's name):
+```
+python -c "import torch; print(torch.cuda.is_available(), torch.cuda.get_device_name(0))"
+```
+Keep your NVIDIA driver up to date. Without a working GPU it still runs on the CPU, just
+slower (`--cpu` forces the CPU).
+
 `python train_game_model.py --linear-trees` tries LightGBM linear trees (smoother
 reaction to small stat changes). Off by default because it didn't help on 82k games.
 
@@ -229,7 +279,10 @@ from what the other steps saved. It takes seconds and retrains nothing. Sections
 7. **Patch by patch**, every method next to the luck floor.
 8. **Game model**: accuracy per patch, region and rank, calibration, champions it
    misjudges, and what it relies on.
-9. **Data checks**: games per patch, suspiciously large changes (possible reading
+9. **Champion strength model**: accuracy per patch next to the other models, a head to
+   head on the same changed champions, its biggest predicted effects and which numbers
+   caused them, and the champions the numbers explain least.
+10. **Data checks**: games per patch, suspiciously large changes (possible reading
    errors) and reworks.
 
 The same group numbers are also saved to `training/diagnostics_breakdown.csv`, and every

@@ -50,7 +50,9 @@ except ImportError:
 # If LightGBM is missing or crashes (some Windows installs of LightGBM 4.7 do), the
 # model automatically switches to scikit-learn's HistGradientBoosting - the same idea
 # (many small decision trees), just a different library.
-ENGINE = {"use_sklearn": lgb is None, "warned": False}
+ENGINE = {"use_sklearn": lgb is None, "warned": False,
+          "choice": "lightgbm",   # or "xgboost"  (--engine)
+          "gpu": False}           # --gpu: train on the graphics card, falls back to CPU
 
 import build_training_tables as btt  # same folder: reuses the feature code
 
@@ -185,6 +187,7 @@ class GameModel:
                 "bagging_fraction": p["subsample"], "bagging_freq": p["subsample_freq"],
                 "feature_fraction": p["colsample_bytree"], "lambda_l2": p["reg_lambda"],
                 "verbose": -1, "seed": seed, "num_threads": os.cpu_count() or 1,
+                **({"device_type": "gpu"} if ENGINE["gpu"] else {}),
                 **({"linear_tree": True, "linear_lambda": LINEAR_TREES["linear_lambda"]}
                    if LINEAR_TREES["on"] else {})}
 
@@ -198,6 +201,9 @@ class GameModel:
         val = rng.random(len(df)) < 0.15             # validation split, by game
         tr_rows, va_rows = np.flatnonzero(~val), np.flatnonzero(val)
         cats = [self.names.index(c) for c in ID_COLS] if self.variant == "identity" else []
+        if ENGINE["choice"] == "xgboost":
+            self._fit_xgb(df, y, tr_rows, va_rows, cats, seed)
+            return self
         if not ENGINE["use_sklearn"]:
             try:
                 ytr = np.concatenate([y[tr_rows], 1.0 - y[tr_rows]])
@@ -215,7 +221,14 @@ class GameModel:
                 self.engine = "lightgbm"
                 self.trees = self.booster.best_iteration or PARAMS["n_estimators"]
                 return self
-            except OSError as e:
+            except Exception as e:
+                if ENGINE["gpu"]:
+                    ENGINE["gpu"] = False
+                    print(f"  NOTE: LightGBM couldn't use the GPU ({str(e)[:120]}). Using the "
+                          f"CPU instead.", flush=True)
+                    return self.fit(df, seed)
+                if not isinstance(e, OSError):
+                    raise
                 ENGINE["use_sklearn"] = True
                 print(f"  NOTE: LightGBM crashed on this computer ({e}). Switching to "
                       f"scikit-learn's HistGradientBoosting (same technique). To try LightGBM "
@@ -223,6 +236,42 @@ class GameModel:
         all_rows = np.arange(len(df))
         self._fit_sklearn(self._matrix(df, all_rows), np.concatenate([y, 1.0 - y]), cats, seed)
         return self
+
+    def _fit_xgb(self, df, y, tr_rows, va_rows, cats, seed):
+        import xgboost as xgb
+        ftypes = ["c" if i in cats else "q" for i in range(len(self.names))]
+        ytr = np.concatenate([y[tr_rows], 1.0 - y[tr_rows]])
+        yva = np.concatenate([y[va_rows], 1.0 - y[va_rows]])
+        dtrain = xgb.DMatrix(self._matrix(df, tr_rows), label=ytr, feature_names=self.names,
+                             feature_types=ftypes, enable_categorical=bool(cats))
+        dval = xgb.DMatrix(self._matrix(df, va_rows), label=yva, feature_names=self.names,
+                           feature_types=ftypes, enable_categorical=bool(cats))
+        p = PARAMS
+        params = {"objective": "binary:logistic", "eval_metric": "logloss",
+                  "eta": p["learning_rate"], "max_depth": 3,          # ~ LightGBM's 7 leaves
+                  # LightGBM's 800 games per leaf, in XGBoost's units (each game counts ~0.25)
+                  "min_child_weight": p["min_child_samples"] * 0.25,
+                  "subsample": p["subsample"], "colsample_bytree": p["colsample_bytree"],
+                  "lambda": p["reg_lambda"], "tree_method": "hist", "max_cat_to_onehot": 1,
+                  "seed": seed, "nthread": os.cpu_count() or 1,
+                  "device": "cuda" if ENGINE["gpu"] else "cpu"}
+        try:
+            self.booster = xgb.train(params, dtrain, num_boost_round=p["n_estimators"],
+                                     evals=[(dval, "val")], early_stopping_rounds=100,
+                                     verbose_eval=False)
+        except Exception as e:
+            if not ENGINE["gpu"]:
+                raise
+            ENGINE["gpu"] = False
+            print(f"  NOTE: XGBoost couldn't use the GPU ({str(e)[:120]}). Using the CPU instead.",
+                  flush=True)
+            params["device"] = "cpu"
+            self.booster = xgb.train(params, dtrain, num_boost_round=p["n_estimators"],
+                                     evals=[(dval, "val")], early_stopping_rounds=100,
+                                     verbose_eval=False)
+        self.engine = "xgboost"
+        self.trees = int(getattr(self.booster, "best_iteration", p["n_estimators"] - 1)) + 1
+        self._xgb_types = (ftypes, bool(cats))
 
     def _fit_sklearn(self, M, y, cats, seed):
         from sklearn.ensemble import HistGradientBoostingClassifier
@@ -254,17 +303,42 @@ class GameModel:
             M = self._matrix(df, rows)
             if self.engine == "sklearn":
                 pr = self.booster.predict_proba(M)[:, 1]
+            elif self.engine == "xgboost":
+                import xgboost as xgb
+                ftypes, cat = self._xgb_types
+                pr = self.booster.predict(xgb.DMatrix(M, feature_names=self.names,
+                                                      feature_types=ftypes, enable_categorical=cat),
+                                          iteration_range=(0, self.trees))
             else:
                 pr = self.booster.predict(M, num_iteration=self.trees)
             out[s0:s0 + n] = (pr[:n] + (1 - pr[n:])) / 2
         return out
 
     def importance(self, top=15):
+        """Share of the model's total gain per input (all inputs if top is None)."""
         if self.engine == "sklearn":
             return pd.Series(dtype=float)  # not available for this engine
-        imp = pd.Series(self.booster.feature_importance("gain"),
-                        index=self.booster.feature_name())
-        return (imp / imp.sum()).sort_values(ascending=False).head(top)
+        if self.engine == "xgboost":
+            g = self.booster.get_score(importance_type="total_gain")
+            imp = pd.Series({n: g.get(n, 0.0) for n in self.names}, dtype=float)
+        else:
+            imp = pd.Series(self.booster.feature_importance("gain"),
+                            index=self.booster.feature_name())
+        imp = (imp / imp.sum()).sort_values(ascending=False)
+        return imp if top is None else imp.head(top)
+
+    def save(self, models_dir, variant):
+        if self.engine == "sklearn":
+            import joblib
+            path = os.path.join(models_dir, f"game_model_{variant}.joblib")
+            joblib.dump(self.booster, path)
+        elif self.engine == "xgboost":
+            path = os.path.join(models_dir, f"game_model_{variant}_xgb.json")
+            self.booster.save_model(path)
+        else:
+            path = os.path.join(models_dir, f"game_model_{variant}.txt")
+            self.booster.save_model(path, num_iteration=self.trees)
+        return path
 
 
 # --------------------------------------------------------------------------- #
@@ -346,12 +420,17 @@ def shrink_k(cp, before):
 
 
 # --------------------------------------------------------------------------- #
-def evaluate(games, cp, rescorer, platforms, num_cols):
+def evaluate(games, cp, rescorer, platforms, num_cols, test_last=0):
     patches = sorted(games["patch"].unique(), key=pkey)
     counts = games.groupby("patch").size()
     results, champ_rows, game_rows, eff_rows = [], [], [], []
+    testable = [p for i, p in enumerate(patches) if i > 0 and counts[p] >= MIN_TEST_GAMES]
+    if test_last > 0:
+        testable = testable[-test_last:]
     for i, test_patch in enumerate(patches):
         earlier = patches[:i]
+        if test_patch not in testable:
+            continue
         if counts[test_patch] < MIN_TEST_GAMES or not earlier:
             continue
         train = games[games["patch"].isin(earlier)]
@@ -448,8 +527,21 @@ def main(argv=None):
     ap.add_argument("--skip-eval", action="store_true", help="only train the final models")
     ap.add_argument("--linear-trees", action="store_true",
                     help="LightGBM linear trees (smoother reaction to small stat changes)")
+    ap.add_argument("--engine", choices=["lightgbm", "xgboost"], default="lightgbm",
+                    help="tree library (default lightgbm)")
+    ap.add_argument("--gpu", action="store_true",
+                    help="train on the graphics card (falls back to the CPU if it can't)")
+    ap.add_argument("--test-last", type=int, default=0,
+                    help="only test the latest N patches (much faster; 0 = test every patch)")
     args = ap.parse_args(argv)
     LINEAR_TREES["on"] = args.linear_trees
+    ENGINE["choice"], ENGINE["gpu"] = args.engine, args.gpu
+    if args.engine == "xgboost":
+        try:
+            import xgboost  # noqa: F401
+        except ImportError:
+            sys.exit("XGBoost isn't installed:  pip install xgboost")
+    print(f"Engine: {args.engine}{' (GPU)' if args.gpu else ''}")
     import memlimit
     memlimit.apply()          # stay under the RAM limit (default 7 GB) instead of freezing the PC
 
@@ -484,7 +576,8 @@ def main(argv=None):
 
     if not args.skip_eval:
         print("\nEvaluating (train on earlier patches, test on the next one) ...")
-        res, champs, game_preds, effects = evaluate(games, cp, rescorer, platforms, num_cols)
+        res, champs, game_preds, effects = evaluate(games, cp, rescorer, platforms, num_cols,
+                                                    test_last=args.test_last)
         print_results(res, champs)
         os.makedirs(args.dir, exist_ok=True)
         res.to_csv(os.path.join(args.dir, "model_results.csv"), index=False)
@@ -503,13 +596,7 @@ def main(argv=None):
     os.makedirs(args.models, exist_ok=True)
     for variant in ("numbers", "identity"):
         gm = GameModel(variant, platforms, num_cols).fit(games)
-        path = os.path.join(args.models, f"game_model_{variant}.txt")
-        if gm.engine == "sklearn":
-            import joblib
-            path = os.path.join(args.models, f"game_model_{variant}.joblib")
-            joblib.dump(gm.booster, path)
-        else:
-            gm.booster.save_model(path, num_iteration=gm.trees)
+        path = gm.save(args.models, variant)
         with open(os.path.join(args.models, f"game_model_{variant}.json"), "w") as f:
             json.dump({"variant": variant, "engine": gm.engine, "platforms": platforms, "num_cols": num_cols,
                        "cat_levels": [int(v) for v in gm.cat_levels] if gm.cat_levels else None,
@@ -517,10 +604,8 @@ def main(argv=None):
                        "patches": sorted(games["patch"].unique(), key=pkey)}, f)
         print(f"  saved {path} ({gm.trees} trees)")
         if variant == "numbers" and gm.engine != "sklearn":
-            imp = pd.Series(gm.booster.feature_importance("gain"), index=gm.booster.feature_name())
-            (imp / imp.sum()).sort_values(ascending=False).rename("share").rename_axis(
-                "feature").reset_index().to_csv(os.path.join(args.models,
-                                                             "importance_numbers.csv"), index=False)
+            gm.importance(None).rename("share").rename_axis("feature").reset_index().to_csv(
+                os.path.join(args.models, "importance_numbers.csv"), index=False)
         if variant == "numbers":
             print("  what the numbers model relies on most:")
             for name, share in gm.importance(12).items():

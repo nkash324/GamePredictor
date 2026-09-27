@@ -690,6 +690,92 @@ def sec_game(gres, gp, imp, effects, cp):
                    "".join(parts))
 
 
+def sec_strength(sres, sdet, scorr, d, gres):
+    if sres is None or not len(sres):
+        return section("strength", "9. Champion strength model",
+                       "The neural network that scores each champion from their numbers.",
+                       note("No results yet - it runs as part of update_model.bat once PyTorch "
+                            "is installed (see README_WINDOWS.md, 'Champion strength model')."))
+    parts = []
+    r = sres.copy()
+    r["patch"] = r["patch"].astype(str)
+    r = r.set_index("patch").loc[sorted(r["patch"], key=pkey)]
+    t = pd.DataFrame(index=r.index)
+    t["game AUC"] = r["AUC"]
+    if gres is not None and "numbers AUC" in gres:
+        g = gres.assign(patch=gres["patch"].astype(str)).set_index("patch")
+        t["tree AUC"] = g["numbers AUC"].reindex(t.index)
+    for c, lab in [("floor", "floor"), ("champ MAE", "miss"), ("floor ch", "floor ch"),
+                   ("champ MAE ch", "miss ch")]:
+        if c in r:
+            t[lab] = r[c] * 100
+    # the change model on the same patches, for comparison
+    if d is not None and len(d):
+        dd = d[d["patch"].isin(t.index)]
+        wm = lambda x, col: np.average((x[col]).abs(), weights=x["games"]) * 100 if len(x) else np.nan
+        t["change model miss ch"] = [wm(dd[(dd["patch"] == p) & (dd["changed"] == 1)], "error")
+                                     for p in t.index]
+    if "direction" in r:
+        t["dir"] = r["direction"] * 100
+    if "max effect" in r:
+        t["biggest effect"] = r["max effect"]
+    parts.append(table(t.rename_axis("patch"),
+                       {"game AUC": "{:.3f}", "tree AUC": "{:.3f}", "dir": "{:.0f}%",
+                        "biggest effect": "{:.1f}"}))
+    parts.append("<p class='cap'><b>game AUC</b> vs <b>tree AUC</b> = this model vs the tree game "
+                 "model on the same patch. <b>miss</b> = average champion winrate miss (points), "
+                 "<b>ch</b> = changed champions only, <b>change model miss ch</b> = the patch-change "
+                 "model's best guess on the same champions. <b>biggest effect</b> = largest "
+                 "predicted patch effect (points).</p>")
+    if sdet is not None and len(sdet):
+        s = sdet.copy()
+        s["patch"] = s["patch"].astype(str)
+        ch = s[s["changed"] == 1]
+        # head to head on the same changed champions
+        if d is not None and len(d):
+            m = ch.merge(d[["patch", "champion_id", "error", "bold", "actual"]]
+                         if "bold" in d else d[["patch", "champion_id", "error", "actual"]],
+                         on=["patch", "champion_id"], suffixes=("", "_cm"))
+            if len(m):
+                w = m["games"]
+                rows = {"strength model": [np.average(m["error"].abs(), weights=w) * 100,
+                                           np.mean(np.sign(m["effect"]) == np.sign(m["actual_change"])) * 100],
+                        "change model (best guess)": [np.average(m["error_cm"].abs(), weights=w) * 100, np.nan]}
+                if "bold" in m:
+                    rows["change model (bold)"] = [np.nan, np.mean(np.sign(m["bold"]) == np.sign(m["actual"])) * 100]
+                hh = pd.DataFrame(rows, index=["avg miss (points)", "direction right"]).T
+                parts.append(f"<h3>Head to head: the same {len(m)} changed champions</h3>"
+                             + table(hh.rename_axis("model"),
+                                     {"avg miss (points)": "{:.2f}", "direction right": "{:.0f}%"}))
+        parts.append("<h3>Predicted vs actual patch effect (changed champions)</h3>"
+                     + svg_scatter(ch["effect"] * 100, ch["actual_change"] * 100, ch["games"],
+                                   ch["patch"] + " " + ch["champion_id"].astype(str) + ": predicted "
+                                   + (ch["effect"] * 100).round(1).astype(str) + ", actual "
+                                   + (ch["actual_change"] * 100).round(1).astype(str),
+                                   "predicted effect (points)", "actual change (points)"))
+        top = ch.reindex(ch["effect"].abs().sort_values(ascending=False).index).head(20)
+        top = top.assign(predicted=top["effect"] * 100, actual=top["actual_change"] * 100,
+                         result=np.where(np.sign(top["effect"]) == np.sign(top["actual_change"]),
+                                         "right", "wrong"))
+        parts.append("<h3>Biggest predicted effects, and which numbers caused them</h3>"
+                     + table(top[["patch", "champion_id", "games", "predicted", "actual", "result",
+                                  "why"]].set_index("patch"),
+                             {"games": "{:,.0f}", "predicted": "{:+.1f}", "actual": "{:+.1f}"},
+                             {"result": lambda v: "good" if v == "right" else "bad"}))
+        parts.append("<p class='cap'><b>why</b>: how much each changed number moved the "
+                     "champion's strength score, in winrate points.</p>")
+    if scorr is not None and len(scorr):
+        parts.append("<h3>Champions the numbers explain least</h3>"
+                     + table(scorr.head(15).set_index("champion_id"), {"correction_pts": "{:+.1f}"})
+                     + "<p class='cap'>The model's own correction per champion (points), on top of "
+                       "what their numbers predict. Big ones point to something the numbers miss: "
+                       "a unique mechanic, popularity, items, or a reading error in their data.</p>")
+    return section("strength", "9. Champion strength model",
+                   "A neural network that turns each champion's numbers into a strength score, "
+                   "learned from every game. Tested forward in time on the latest patches, next "
+                   "to the other models.", "".join(parts))
+
+
 def sec_data(cp):
     parts = []
     cp = cp.copy()
@@ -734,7 +820,7 @@ def sec_data(cp):
                                  {"n_changes": "{:.0f}"}))
     except Exception as e:  # never let a data check break the report
         parts.append(note(f"Data checks skipped: {html.escape(str(e))}", "warn"))
-    return section("data", "9. Data checks",
+    return section("data", "10. Data checks",
                    "Problems in the inputs show up as model mistakes, so check these first "
                    "when something looks odd.", "".join(parts))
 
@@ -793,6 +879,8 @@ def build(dir_training, dir_models, out):
     cres, bres = read(T("change_model_results.csv")), read(T("baseline_results.csv"))
     weights = read(T("change_model_weights.csv"))
     gres, gp = read(T("model_results.csv")), read(T("game_test_predictions.parquet"))
+    sres, sdet = read(T("strength_results.csv")), read(T("strength_predictions.csv"))
+    scorr = read(os.path.join(dir_models, "strength_corrections.csv"))
     effects, imp = read(T("game_model_effects.csv")), read(os.path.join(dir_models,
                                                                         "importance_numbers.csv"))
 
@@ -819,9 +907,10 @@ def build(dir_training, dir_models, out):
         ("luck", "Luck or mistakes"), ("where", "Where"), ("champs", "Champions"),
         ("calib", "Calibration"), ("bold", "Bold picks"), ("why", "What it learned"),
         ("patches", "Per patch"),
-        ("game", "Game model"), ("data", "Data checks")])
+        ("game", "Game model"), ("strength", "Strength model"), ("data", "Data checks")])
     body = "".join([sec_luck(d), sec_breakdown(d, None), sec_champions(d), sec_calibration(d),
                     sec_bold(d, cres), sec_why(d, weights), sec_patches(cres, bres), sec_game(gres, gp, imp, effects, cp),
+                    sec_strength(sres, sdet, scorr, d, gres),
                     sec_data(cp)])
     page = (f"<!doctype html><html lang='en'><head><meta charset='utf-8'>"
             f"<meta name='viewport' content='width=device-width,initial-scale=1'>"
