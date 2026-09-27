@@ -300,10 +300,13 @@ def raw_ability_changes(con):
     ch.loc[ch["value"].str.contains(RAW_LOWER_IS_BUFF), "rel"] *= -1
     v = ch.groupby(["patch", "champion_id", "value"])["rel"].mean().reset_index()
     v["pve"] = v["value"].str.contains(RAW_PVE)
-    out = v.groupby(["patch", "champion_id"]).apply(lambda g: pd.Series({
-        "raw_buff": g.loc[~g["pve"], "rel"].mean() if (~g["pve"]).any() else 0.0,
-        "raw_pve_buff": g.loc[g["pve"], "rel"].mean() if g["pve"].any() else 0.0,
-        "raw_n": float(len(g))}), include_groups=False).reset_index()
+    # plain aggregations (work on every pandas version)
+    keys = ["patch", "champion_id"]
+    fight = v[~v["pve"]].groupby(keys)["rel"].mean().rename("raw_buff")
+    pve = v[v["pve"]].groupby(keys)["rel"].mean().rename("raw_pve_buff")
+    n = v.groupby(keys)["rel"].size().astype(float).rename("raw_n")
+    out = pd.concat([fight, pve, n], axis=1).reset_index()
+    out[["raw_buff", "raw_pve_buff"]] = out[["raw_buff", "raw_pve_buff"]].fillna(0.0)
     return out
 
 
