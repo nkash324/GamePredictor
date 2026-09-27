@@ -144,6 +144,8 @@ def main(argv=None):
     ap.add_argument("--test-last", type=int, default=None,
                     help="only test the latest N patches (game model default: all; "
                          "strength model default: 6)")
+    ap.add_argument("--export-only", action="store_true",
+                    help="only copy the latest result files into results\\ (used by share_results.bat)")
     ap.add_argument("--skip-data", action="store_true",
                     help="reuse the existing training tables (skip steps 1-3)")
     ap.add_argument("--patch-charts", type=int, default=5,
@@ -153,6 +155,13 @@ def main(argv=None):
     ap.add_argument("--max-ram-gb", type=float, default=memlimit.DEFAULT_GB,
                     help=f"RAM limit for all steps together (default {memlimit.DEFAULT_GB:g}, 0 = none)")
     args = ap.parse_args(argv)
+
+    if args.export_only:
+        class _Out:
+            def write(self, x): pass
+            def flush(self): pass
+        export_results(_Out())
+        return
 
     for f in ("lol_data.db", "build_patch_state.py", "build_training_tables.py"):
         if not os.path.exists(os.path.join(HERE, f)):
