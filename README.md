@@ -1,6 +1,6 @@
 # GamePredictor
 
-Data pipeline and models behind **[PatchCast](https://nkash324.github.io/patchcast/)**, which forecasts each League of Legends champion's winrate on a new patch before any games are played on it.
+Data pipeline and models behind **[PatchCast](https://nkash324.github.io/patchcast/)**, which forecasts each character's winrate in a competitive online game on a new patch before any games are played on it.
 
 ## What it does
 1. **Collects matches.** `collector.py` pulls ranked games from the Riot API across NA, EUW and KR in parallel (one worker per region, respecting per-region rate limits) and backfills every patch breadth-first into SQLite. It resumes where it left off.
