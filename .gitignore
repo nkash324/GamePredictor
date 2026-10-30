@@ -29,3 +29,8 @@ models/
 
 # --- small result files, copied here by run_pipeline.py after each run (shared via git) ---
 !results/pipeline.log
+
+# --- machine-specific / generated (site build) ---
+collector_config.json
+ddragon_cache/
+/report.html

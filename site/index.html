@@ -1,0 +1,465 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PatchCast</title>
+<meta name="description" content="Champion winrate forecasts for every League of Legends patch, with an honest record of how accurate they were.">
+<style>
+:root{
+  --bg:#fcfcfb; --panel:#ffffff; --ink:#0b0b0b; --ink2:#52514e; --muted:#8a8984; --line:#e6e5e1; --grid:#efeeea;
+  --accent:#2a78d6; --up:#2a78d6; --down:#e34948; --mid:#f0efec; --chip:#f3f2ef;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#1a1a19; --panel:#222221; --ink:#f2f1ee; --ink2:#b3b2ad; --muted:#85847f; --line:#353533; --grid:#2c2c2a;
+    --accent:#3987e5; --up:#3987e5; --down:#f0605f; --mid:#383835; --chip:#2c2c2a;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#1a1a19; --panel:#222221; --ink:#f2f1ee; --ink2:#b3b2ad; --muted:#85847f; --line:#353533; --grid:#2c2c2a;
+  --accent:#3987e5; --up:#3987e5; --down:#f0605f; --mid:#383835; --chip:#2c2c2a;
+}
+*{box-sizing:border-box}
+html,body{margin:0}
+body{background:var(--bg);color:var(--ink);font:15px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+a{color:var(--accent)}
+.wrap{max-width:1080px;margin:0 auto;padding:0 16px}
+header{border-bottom:1px solid var(--line);background:var(--panel)}
+.top{display:flex;align-items:center;gap:16px;padding:14px 0;flex-wrap:wrap}
+.logo{font-weight:750;font-size:20px;letter-spacing:-.02em}
+.logo span{color:var(--accent)}
+.sub{color:var(--ink2);font-size:13px}
+.spacer{flex:1}
+nav{display:flex;gap:4px;flex-wrap:wrap}
+nav button{background:none;border:0;color:var(--ink2);font:inherit;padding:8px 12px;border-radius:8px;cursor:pointer}
+nav button:hover{background:var(--chip);color:var(--ink)}
+nav button.on{background:var(--chip);color:var(--ink);font-weight:600}
+#theme{background:none;border:1px solid var(--line);color:var(--ink2);border-radius:8px;padding:6px 10px;cursor:pointer;font:inherit;font-size:13px}
+main{padding:24px 0 48px}
+section{display:none}
+section.on{display:block}
+h1{font-size:26px;letter-spacing:-.02em;margin:0 0 4px}
+h2{font-size:18px;margin:32px 0 8px}
+p.lead{color:var(--ink2);margin:0 0 20px;max-width:760px}
+.note{color:var(--ink2);font-size:13px;max-width:760px}
+.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;margin:16px 0}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px 16px}
+.card .k{color:var(--ink2);font-size:12px;text-transform:uppercase;letter-spacing:.04em}
+.card .v{font-size:26px;font-weight:700;letter-spacing:-.02em;margin-top:2px}
+.card .d{color:var(--ink2);font-size:13px}
+.movers{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+@media (max-width:700px){.movers{grid-template-columns:1fr}}
+.mlist{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:8px 0}
+.mlist h3{font-size:13px;color:var(--ink2);margin:4px 16px 6px;font-weight:600;text-transform:uppercase;letter-spacing:.04em}
+.mrow{display:flex;align-items:center;gap:10px;padding:6px 16px}
+.mrow .nm{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.mrow .val{font-variant-numeric:tabular-nums;font-weight:600}
+img.ic{width:28px;height:28px;border-radius:6px;background:var(--chip);flex:none;object-fit:cover}
+.controls{display:flex;gap:8px;flex-wrap:wrap;margin:24px 0 10px;align-items:center}
+input[type=search]{flex:1;min-width:180px;max-width:320px;padding:8px 12px;border:1px solid var(--line);border-radius:8px;background:var(--panel);color:var(--ink);font:inherit}
+.seg{display:flex;border:1px solid var(--line);border-radius:8px;overflow:hidden;flex-wrap:wrap}
+.seg button{background:var(--panel);border:0;border-right:1px solid var(--line);color:var(--ink2);padding:7px 11px;font:inherit;font-size:13px;cursor:pointer}
+.seg button:last-child{border-right:0}
+.seg button.on{background:var(--chip);color:var(--ink);font-weight:600}
+label.chk{color:var(--ink2);font-size:13px;display:flex;gap:6px;align-items:center}
+.tablewrap{overflow-x:auto;background:var(--panel);border:1px solid var(--line);border-radius:12px}
+table{border-collapse:collapse;width:100%;font-variant-numeric:tabular-nums}
+th,td{padding:8px 12px;text-align:left;border-bottom:1px solid var(--line);white-space:nowrap}
+tr:last-child td{border-bottom:0}
+th{font-size:12px;color:var(--ink2);font-weight:600;text-transform:uppercase;letter-spacing:.03em;cursor:pointer;user-select:none;position:sticky;top:0;background:var(--panel)}
+th.num,td.num{text-align:right}
+th .ar{color:var(--muted)}
+td .who{display:flex;align-items:center;gap:10px}
+.tag{display:inline-block;font-size:11px;padding:1px 7px;border-radius:99px;background:var(--chip);color:var(--ink2);margin-left:6px}
+.rng{color:var(--ink2);font-size:12px}
+.up{color:var(--up)} .down{color:var(--down)} .flat{color:var(--muted)}
+.bar{display:inline-block;height:8px;border-radius:4px;vertical-align:middle;margin-right:6px}
+.changes{display:grid;gap:10px}
+.chg{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:12px 16px;display:flex;gap:12px;align-items:flex-start}
+.chg .body{flex:1;min-width:0}
+.chg .title{display:flex;gap:8px;align-items:baseline;flex-wrap:wrap}
+.chg .title b{font-size:15px}
+.why{margin:6px 0 0;padding:0;list-style:none;display:flex;gap:6px;flex-wrap:wrap}
+.why li{font-size:12px;padding:2px 8px;border-radius:99px;background:var(--chip);color:var(--ink2)}
+.charts{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:16px}
+.chart{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px 16px}
+.chart h3{margin:0;font-size:15px}
+.chart .cap{color:var(--ink2);font-size:13px;margin:2px 0 8px}
+.chart svg{width:100%;height:auto;display:block}
+.legend{display:flex;gap:14px;flex-wrap:wrap;font-size:12px;color:var(--ink2);margin-top:6px}
+.legend i{display:inline-block;width:14px;height:3px;border-radius:2px;vertical-align:middle;margin-right:5px}
+svg text{fill:var(--ink2);font-size:11px;font-family:inherit}
+svg .gl{stroke:var(--grid);stroke-width:1}
+svg .ax{stroke:var(--line);stroke-width:1}
+svg .diag{stroke:var(--muted);stroke-width:1.5;stroke-dasharray:4 4}
+#tip{position:fixed;pointer-events:none;background:var(--panel);color:var(--ink);border:1px solid var(--line);border-radius:8px;padding:6px 10px;font-size:12px;box-shadow:0 4px 16px rgba(0,0,0,.12);display:none;z-index:10;max-width:260px}
+#tip b{display:block}
+.about{max-width:760px}
+.about p,.about li{color:var(--ink2)}
+.legal{margin-top:40px;padding-top:16px;border-top:1px solid var(--line);color:var(--muted);font-size:12px}
+footer{border-top:1px solid var(--line);padding:16px 0;color:var(--muted);font-size:12px}
+.empty{color:var(--ink2);padding:16px}
+</style>
+</head>
+<body>
+<header><div class="wrap top">
+  <div><div class="logo">Patch<span>Cast</span></div><div class="sub" id="subline"></div></div>
+  <div class="spacer"></div>
+  <nav id="nav">
+    <button data-s="forecast" class="on">Forecast</button>
+    <button data-s="changes">Patch changes</button>
+    <button data-s="accuracy">Accuracy</button>
+    <button data-s="about">About</button>
+  </nav>
+  <button id="theme" title="Switch light / dark">Theme</button>
+</div></header>
+
+<main class="wrap">
+  <section id="forecast" class="on">
+    <h1 id="fc-title">Forecast</h1>
+    <p class="lead">Expected winrate for every champion this patch, from recent results, long-run results, popularity and this patch's balance changes. The range shows where the real winrate is likely to land (95%).</p>
+    <div class="cards" id="fc-cards"></div>
+    <div class="movers">
+      <div class="mlist"><h3>Highest forecast</h3><div id="top-list"></div></div>
+      <div class="mlist"><h3>Lowest forecast</h3><div id="bot-list"></div></div>
+    </div>
+    <div class="controls">
+      <input type="search" id="q" placeholder="Search champions" aria-label="Search champions">
+      <div class="seg" id="roles"></div>
+      <label class="chk"><input type="checkbox" id="onlych"> Changed this patch only</label>
+    </div>
+    <div class="tablewrap"><table id="fc-table"><thead></thead><tbody></tbody></table></div>
+    <div id="more" style="text-align:center;margin:10px 0"></div>
+    <p class="note" id="fc-note"></p>
+  </section>
+
+  <section id="changes">
+    <h1>Patch changes</h1>
+    <p class="lead" id="ch-lead"></p>
+    <div class="changes" id="ch-list"></div>
+    <h2>Item changes</h2>
+    <div id="it-list"></div>
+  </section>
+
+  <section id="accuracy">
+    <h1>How accurate is it?</h1>
+    <p class="lead">Every number here comes from forecasts made <b>before</b> each patch, using only earlier data, then compared with what happened. Nothing is fitted after the fact.</p>
+    <div class="cards" id="acc-cards"></div>
+    <div class="charts">
+      <div class="chart"><h3 id="sc-title">Forecast vs actual</h3><p class="cap">Each dot is a champion. Dots on the dashed line were forecast exactly. Both axes use the same scale.</p><div id="sc"></div></div>
+      <div class="chart"><h3>Calibration</h3><p class="cap">Champions from all tested patches, grouped into 12 bands by forecast. When a band says 52%, those champions really won about 52%.</p><div id="cal"></div></div>
+    </div>
+    <div class="chart" style="margin-top:16px"><h3>Average miss per patch</h3><p class="cap">Average distance between forecast and actual winrate, in percentage points (lower is better). "Luck floor" is the miss you'd get even with a perfect forecast, because of random game outcomes.</p><div id="miss"></div>
+      <div class="legend"><span><i style="background:var(--accent)"></i>PatchCast</span><span><i style="background:var(--muted)"></i>Last patch's winrate</span><span><i style="background:var(--ink2);height:0;border-top:2px dashed var(--ink2)"></i>Luck floor</span></div>
+    </div>
+    <h2>Per patch</h2>
+    <div class="tablewrap"><table id="pp"><thead><tr><th>Patch</th><th class="num">Correlation</th><th class="num">Last-patch correlation</th><th class="num">Avg miss</th><th class="num">Last-patch miss</th><th class="num">Luck floor</th></tr></thead><tbody></tbody></table></div>
+    <p class="note" id="acc-note"></p>
+  </section>
+
+  <section id="about" class="about">
+    <h1>About PatchCast</h1>
+    <p>PatchCast forecasts how strong each League of Legends champion will be on a patch, and keeps a public record of how right or wrong those forecasts were.</p>
+    <h2>How it works</h2>
+    <ul>
+      <li><b>Strength.</b> Each champion's recent and long-run winrate, each trusted in proportion to how many games it's based on, plus popularity.</li>
+      <li><b>Balance changes.</b> Changes to base stats, ability numbers, cooldowns, item stats and item passives are turned into numbers (for example, "ability damage +8%") and weighted by what worked on past patches.</li>
+      <li><b>Items.</b> Item changes are applied to champions in proportion to how often they build the item.</li>
+      <li><b>Testing.</b> The model is always tested on patches it has never seen, the same way it's used.</li>
+    </ul>
+    <h2>Being honest about limits</h2>
+    <p>The overall forecast is clearly better than just using last patch's winrate. Predicting the exact effect of a specific balance change is much harder: with only a couple of dozen patches of data, the patch-effect part is experimental and is switched off automatically whenever testing says it isn't helping. More games per patch is the main thing that would improve it.</p>
+    <h2>Data</h2>
+    <p>Ranked match data collected through the Riot Games API, champion and item data from Data Dragon and CommunityDragon. PatchCast shows champion-level statistics only: no individual players are shown or rated.</p>
+    <p>PatchCast is free and has no ads or paid features.</p>
+    <p class="legal">PatchCast isn't endorsed by Riot Games and doesn't reflect the views or opinions of Riot Games or anyone officially involved in producing or managing Riot Games properties. Riot Games, and all associated properties are trademarks or registered trademarks of Riot Games, Inc.</p>
+  </section>
+</main>
+
+<footer><div class="wrap" id="foot"></div></footer>
+<div id="tip"></div>
+
+<script src="data.js"></script>
+<script>
+(function(){
+"use strict";
+var D = window.PATCHCAST;
+var $ = function(s){ return document.querySelector(s); };
+var esc = function(s){ return String(s == null ? "" : s).replace(/[&<>"']/g, function(c){ return {"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[c]; }); };
+var pct = function(v, nd){ return v == null ? "–" : (v * 100).toFixed(nd == null ? 1 : nd) + "%"; };
+var pts = function(v){ if (v == null) return "–"; var s = (v * 100).toFixed(1); return (v > 0 ? "+" : v < 0 ? "−" : "±") + s.replace("-", ""); };
+var ROLE = {TOP:"Top", JUNGLE:"Jungle", MIDDLE:"Mid", BOTTOM:"Bot", UTILITY:"Support"};
+
+if (!D) { document.querySelector("main").innerHTML = '<p class="empty">No data yet: run build_site.py to create data.js.</p>'; return; }
+
+// ---------- theme ----------
+var root = document.documentElement;
+try { var saved = localStorage.getItem("pc-theme"); if (saved) root.setAttribute("data-theme", saved); } catch(e) {}
+$("#theme").onclick = function(){
+  var dark = root.getAttribute("data-theme") ? root.getAttribute("data-theme") === "dark" : matchMedia("(prefers-color-scheme: dark)").matches;
+  var next = dark ? "light" : "dark";
+  root.setAttribute("data-theme", next);
+  try { localStorage.setItem("pc-theme", next); } catch(e) {}
+};
+
+// ---------- tabs ----------
+function show(id){
+  document.querySelectorAll("section").forEach(function(s){ s.classList.toggle("on", s.id === id); });
+  document.querySelectorAll("#nav button").forEach(function(b){ b.classList.toggle("on", b.dataset.s === id); });
+}
+document.querySelectorAll("#nav button").forEach(function(b){
+  b.onclick = function(){ show(b.dataset.s); history.replaceState(null, "", "#" + b.dataset.s); };
+});
+if (location.hash && document.getElementById(location.hash.slice(1))) show(location.hash.slice(1));
+
+// ---------- tooltip ----------
+var tip = $("#tip");
+function tipOn(e, html){ tip.innerHTML = html; tip.style.display = "block"; tipMove(e); }
+function tipMove(e){
+  var w = tip.offsetWidth, h = tip.offsetHeight, x = e.clientX + 14, y = e.clientY + 14;
+  if (x + w > innerWidth - 8) x = e.clientX - w - 14;
+  if (y + h > innerHeight - 8) y = e.clientY - h - 14;
+  tip.style.left = x + "px"; tip.style.top = y + "px";
+}
+function tipOff(){ tip.style.display = "none"; }
+function bindTips(container){
+  container.querySelectorAll("[data-tip]").forEach(function(el){
+    el.addEventListener("mouseenter", function(e){ tipOn(e, el.getAttribute("data-tip")); });
+    el.addEventListener("mousemove", tipMove);
+    el.addEventListener("mouseleave", tipOff);
+  });
+}
+
+function icon(id){
+  return '<img class="ic" loading="lazy" alt="" src="https://ddragon.leagueoflegends.com/cdn/' + esc(D.ddragon) +
+         '/img/champion/' + esc(id) + '.png" onerror="this.style.visibility=\'hidden\'">';
+}
+function arrow(v, eps){
+  eps = eps || 0.0005;
+  if (v == null || Math.abs(v) < eps) return '<span class="flat">–</span>';
+  return v > 0 ? '<span class="up">▲ ' + pts(v) + '</span>' : '<span class="down">▼ ' + pts(v) + '</span>';
+}
+
+$("#subline").textContent = "Patch " + D.patch + " · updated " + D.built;
+$("#foot").innerHTML = "PatchCast · patch " + esc(D.patch) + " · built " + esc(D.built) +
+  " · not endorsed by Riot Games (see About)";
+
+// ================= FORECAST =================
+var F = D.forecast.slice();
+var changed = F.filter(function(c){ return c.changed; });
+var itemHit = F.filter(function(c){ return c.items; });
+$("#fc-title").textContent = "Patch " + D.patch + " forecast";
+var A = D.accuracy;
+$("#fc-cards").innerHTML =
+  card("Champions", F.length, "with games on this patch") +
+  card("Changed this patch", changed.length, itemHit.length ? itemHit.length + " more affected by item changes" : "direct champion changes") +
+  (A ? card("Average miss", A.miss.toFixed(2) + " pts", "vs " + A.miss_last.toFixed(2) + " using last patch · luck floor " + A.luck.toFixed(2)) : "") +
+  (A ? card("Beat last patch", A.beat_last + " / " + A.patches_tested, "tested patches with a smaller miss") : "");
+function card(k, v, d){ return '<div class="card"><div class="k">' + esc(k) + '</div><div class="v">' + esc(v) + '</div><div class="d">' + esc(d) + '</div></div>'; }
+
+function mrow(c){
+  return '<div class="mrow">' + icon(c.id) + '<span class="nm">' + esc(c.name) +
+    (c.role ? ' <span class="tag">' + esc(ROLE[c.role] || c.role) + '</span>' : '') +
+    '</span><span class="val">' + pct(c.predicted) + '</span></div>';
+}
+var solid = F.filter(function(c){ return c.predicted != null; }).sort(function(a, b){ return b.predicted - a.predicted; });
+$("#top-list").innerHTML = solid.slice(0, 5).map(mrow).join("");
+$("#bot-list").innerHTML = solid.slice(-5).reverse().map(mrow).join("");
+
+var roles = ["ALL"].concat(Object.keys(ROLE).filter(function(r){ return F.some(function(c){ return c.role === r; }); }));
+var state = {role:"ALL", q:"", only:false, sort:"predicted", dir:-1, all:false};
+var LIMIT = 40;
+$("#roles").innerHTML = roles.map(function(r){ return '<button data-r="' + r + '"' + (r === "ALL" ? ' class="on"' : '') + '>' + (r === "ALL" ? "All roles" : ROLE[r]) + '</button>'; }).join("");
+$("#roles").onclick = function(e){
+  var b = e.target.closest("button"); if (!b) return;
+  state.role = b.dataset.r;
+  $("#roles").querySelectorAll("button").forEach(function(x){ x.classList.toggle("on", x === b); });
+  drawTable();
+};
+$("#q").oninput = function(){ state.q = this.value.trim().toLowerCase(); drawTable(); };
+$("#onlych").onchange = function(){ state.only = this.checked; drawTable(); };
+
+var COLS = [
+  {k:"name", t:"Champion"}, {k:"role", t:"Role"},
+  {k:"predicted", t:"Forecast", num:true}, {k:"impact", t:"Patch effect", num:true},
+  {k:"actual", t:"Actual so far", num:true}, {k:"games", t:"Games", num:true}
+];
+function drawHead(){
+  $("#fc-table thead").innerHTML = "<tr>" + COLS.map(function(c){
+    var ar = state.sort === c.k ? (state.dir > 0 ? " ▲" : " ▼") : "";
+    return '<th data-k="' + c.k + '"' + (c.num ? ' class="num"' : '') + '>' + c.t + '<span class="ar">' + ar + '</span></th>';
+  }).join("") + "</tr>";
+}
+$("#fc-table thead").onclick = function(e){
+  var th = e.target.closest("th"); if (!th) return;
+  var k = th.dataset.k;
+  if (state.sort === k) state.dir = -state.dir; else { state.sort = k; state.dir = (k === "name" || k === "role") ? 1 : -1; }
+  drawTable();
+};
+function drawTable(){
+  drawHead();
+  var rows = F.filter(function(c){
+    return (state.role === "ALL" || c.role === state.role) && (!state.only || c.changed || c.items) &&
+           (!state.q || c.name.toLowerCase().indexOf(state.q) >= 0);
+  });
+  rows.sort(function(a, b){
+    var x = a[state.sort], y = b[state.sort];
+    if (x == null && y == null) return 0; if (x == null) return 1; if (y == null) return -1;
+    return (typeof x === "string" ? x.localeCompare(y) : x - y) * state.dir;
+  });
+  var total = rows.length;
+  if (!state.all && !state.q && total > LIMIT) rows = rows.slice(0, LIMIT);
+  $("#more").innerHTML = rows.length < total ? '<button id="showall" class="seg" style="padding:8px 14px;background:var(--panel);color:var(--ink);cursor:pointer;font:inherit">Show all ' + total + ' champions</button>' : "";
+  if (rows.length < total) $("#showall").onclick = function(){ state.all = true; drawTable(); };
+  $("#fc-table tbody").innerHTML = rows.length ? rows.map(function(c){
+    var why = c.reasons.length ? "<b>Why</b>" + c.reasons.map(function(r){ return (r.dir > 0 ? "▲ " : "▼ ") + esc(r.what); }).join("<br>") : "";
+    return "<tr>" +
+      '<td><div class="who">' + icon(c.id) + "<span>" + esc(c.name) +
+        (c.changed ? '<span class="tag">changed</span>' : c.items ? '<span class="tag">items</span>' : "") + "</span></div></td>" +
+      "<td>" + esc(ROLE[c.role] || c.role || "") + "</td>" +
+      '<td class="num"><b>' + pct(c.predicted) + '</b> <span class="rng">' + pct(c.low, 0) + "–" + pct(c.high, 0) + "</span></td>" +
+      '<td class="num"' + (why ? ' data-tip="' + esc(why) + '"' : "") + ">" + ((c.changed || c.items) ? arrow(c.impact) : '<span class="flat">–</span>') + "</td>" +
+      '<td class="num">' + pct(c.actual) + "</td>" +
+      '<td class="num">' + (c.games ? c.games.toLocaleString() : "–") + "</td></tr>";
+  }).join("") : '<tr><td colspan="6" class="empty">No champions match.</td></tr>';
+  bindTips($("#fc-table tbody"));
+}
+drawTable();
+$("#fc-note").innerHTML = "Patch effect: how much this patch's champion and item changes move the forecast, in percentage points. Hover it to see why. " +
+  (D.impact_on ? "" : "<b>Right now testing says the patch-effect estimates don't help overall, so they are shown but not added to the forecast.</b> ") +
+  "“Actual so far” appears once a champion has 200+ games on the patch.";
+
+// ================= PATCH CHANGES =================
+var touched = F.filter(function(c){ return c.changed || c.items; }).sort(function(a, b){ return (b.impact || 0) - (a.impact || 0); });
+$("#ch-lead").textContent = changed.length + " champions changed directly on patch " + D.patch +
+  (itemHit.length ? ", and " + itemHit.length + " more are affected by item changes" : "") +
+  ". Sorted from biggest expected gain to biggest expected loss. These estimates are experimental: see Accuracy.";
+$("#ch-list").innerHTML = touched.length ? touched.map(function(c){
+  return '<div class="chg">' + icon(c.id) + '<div class="body"><div class="title"><b>' + esc(c.name) + "</b>" +
+    '<span class="tag">' + esc(ROLE[c.role] || c.role || "") + "</span>" +
+    '<span class="tag">' + (c.changed ? "champion change" : "item change") + "</span>" +
+    '<span class="spacer"></span>' + arrow(c.impact) + "</div>" +
+    '<div class="note">Forecast ' + pct(c.predicted) + (c.actual != null ? " · actual so far " + pct(c.actual) + " (" + c.games.toLocaleString() + " games)" : "") + "</div>" +
+    (c.reasons.length ? '<ul class="why">' + c.reasons.map(function(r){
+      return '<li><span class="' + (r.dir > 0 ? "up" : "down") + '">' + (r.dir > 0 ? "▲" : "▼") + "</span> " + esc(r.what) + "</li>";
+    }).join("") + "</ul>" : "") + "</div></div>";
+}).join("") : '<p class="empty">No champion changes on this patch.</p>';
+$("#it-list").innerHTML = D.items.length ?
+  '<div class="tablewrap"><table><thead><tr><th>Item</th><th class="num">Size</th><th>What changed</th><th>Main users</th></tr></thead><tbody>' +
+  D.items.map(function(it){
+    return "<tr><td>" + esc(it.name) + '</td><td class="num">' + (it.size == null ? "–" : '<span class="' + (it.size > 0 ? "up" : it.size < 0 ? "down" : "flat") + '">' + (it.size > 0 ? "+" : "") + it.size + "%</span>") +
+      "</td><td>" + esc(it.changes) + "</td><td>" + esc(it.users) + "</td></tr>";
+  }).join("") + "</tbody></table></div><p class=\"note\">Size: gold value of the stat and passive changes as a share of the item's value.</p>" :
+  '<p class="empty">No item changes on this patch.</p>';
+
+// ================= ACCURACY =================
+if (!A) {
+  $("#accuracy").innerHTML = '<h1>How accurate is it?</h1><p class="empty">No test results yet.</p>';
+} else {
+  $("#acc-cards").innerHTML =
+    card("Average miss", A.miss.toFixed(2) + " pts", "luck floor " + A.luck.toFixed(2) + " · last patch " + A.miss_last.toFixed(2)) +
+    card("Correlation", A.r.toFixed(2), "forecast vs actual (last patch alone: " + A.r_last.toFixed(2) + ")") +
+    card("Patches tested", A.patches_tested, "beat last patch's winrate on " + A.beat_last) +
+    (A.direction_n ? card("Patch-effect direction", Math.round(100 * A.direction_hits / A.direction_n) + "%", A.direction_hits + " of " + A.direction_n + " bold calls right (50% = coin flip)") : "");
+  $("#sc-title").textContent = "Forecast vs actual, patch " + A.scatter_patch;
+  $("#sc").innerHTML = scatter(A.scatter);
+  $("#cal").innerHTML = calib(A.calibration);
+  $("#miss").innerHTML = missChart(A.per_patch);
+  bindTips($("#accuracy"));
+  $("#pp tbody").innerHTML = A.per_patch.slice().reverse().map(function(p){
+    return "<tr><td>" + esc(p.patch) + '</td><td class="num">' + fx(p.r, 2) + '</td><td class="num">' + fx(p.r_last, 2) +
+      '</td><td class="num"><b>' + fx(p.miss, 2) + '</b></td><td class="num">' + fx(p.miss_last, 2) + '</td><td class="num">' + fx(p.luck, 2) + "</td></tr>";
+  }).join("");
+  var dh = A.direction_n ? Math.round(100 * A.direction_hits / A.direction_n) : null;
+  $("#acc-note").innerHTML = "Correlation of 1 would be perfect; because of random game outcomes, even a perfect forecast would score well below 1 on one patch of data. " +
+    (dh != null ? "Patch-effect direction: when PatchCast made a clear call on a changed champion, it got the direction right " + dh + "% of the time. " +
+      (dh < 58 ? "That is close to a coin flip, which is why the patch-effect part is treated as experimental." : "") : "");
+}
+function fx(v, n){ return v == null ? "–" : v.toFixed(n); }
+
+function niceTicks(lo, hi, n){
+  var step = (hi - lo) / n, mag = Math.pow(10, Math.floor(Math.log10(step))), e = step / mag;
+  step = (e < 1.5 ? 1 : e < 3 ? 2 : e < 7 ? 5 : 10) * mag;
+  var t = [], v = Math.ceil(lo / step) * step;
+  for (; v <= hi + 1e-9; v += step) t.push(+v.toFixed(10));
+  return t;
+}
+
+// square, equal-scale chart of forecast (x) vs actual (y)
+function squareAxes(lo, hi, S, P, fmt){
+  var sc = function(v){ return P + (v - lo) / (hi - lo) * (S - 2 * P); };
+  var sy = function(v){ return S - sc(v); };
+  var g = "";
+  niceTicks(lo, hi, 5).forEach(function(t){
+    g += '<line class="gl" x1="' + P + '" x2="' + (S - P) + '" y1="' + sy(t) + '" y2="' + sy(t) + '"/>' +
+         '<line class="gl" y1="' + P + '" y2="' + (S - P) + '" x1="' + sc(t) + '" x2="' + sc(t) + '"/>' +
+         '<text x="' + (P - 6) + '" y="' + (sy(t) + 4) + '" text-anchor="end">' + fmt(t) + "</text>" +
+         '<text x="' + sc(t) + '" y="' + (S - P + 16) + '" text-anchor="middle">' + fmt(t) + "</text>";
+  });
+  g += '<line class="ax" x1="' + P + '" x2="' + (S - P) + '" y1="' + (S - P) + '" y2="' + (S - P) + '"/>' +
+       '<line class="ax" x1="' + P + '" x2="' + P + '" y1="' + P + '" y2="' + (S - P) + '"/>' +
+       '<line class="diag" x1="' + sc(lo) + '" y1="' + sy(lo) + '" x2="' + sc(hi) + '" y2="' + sy(hi) + '"/>' +
+       '<text x="' + (S / 2) + '" y="' + (S - 8) + '" text-anchor="middle">Forecast winrate</text>' +
+       '<text transform="translate(12,' + (S / 2) + ') rotate(-90)" text-anchor="middle">Actual winrate</text>';
+  return {sc:sc, sy:sy, g:g};
+}
+function scatter(pts_){
+  var S = 460, P = 52;
+  var v = []; pts_.forEach(function(d){ v.push(d.p, d.a); });
+  v.sort(function(a, b){ return a - b; });
+  var lo = v[Math.floor(v.length * 0.01)], hi = v[Math.ceil(v.length * 0.99) - 1];
+  var pad = (hi - lo) * 0.08; lo -= pad; hi += pad;
+  var ax = squareAxes(lo, hi, S, P, function(t){ return Math.round(t * 100) + "%"; });
+  var clip = function(x){ return Math.max(lo, Math.min(hi, x)); };
+  var dots = pts_.map(function(d){
+    var r = Math.max(3, Math.min(7, Math.sqrt(d.g) / 9));
+    return '<circle cx="' + ax.sc(clip(d.p)).toFixed(1) + '" cy="' + ax.sy(clip(d.a)).toFixed(1) + '" r="' + r.toFixed(1) +
+      '" fill="var(--accent)" fill-opacity=".55" stroke="var(--panel)" stroke-width="1" data-tip="<b>' + esc(d.n) + "</b>Forecast " + pct(d.p) +
+      "<br>Actual " + pct(d.a) + "<br>" + d.g.toLocaleString() + ' games"/>';
+  }).join("");
+  return '<svg viewBox="0 0 ' + S + " " + S + '" role="img" aria-label="Forecast versus actual winrate">' + ax.g + dots + "</svg>";
+}
+function calib(b){
+  var S = 460, P = 52;
+  var v = []; b.forEach(function(d){ v.push(d.p, d.a - 2 * d.se, d.a + 2 * d.se); });
+  var lo = Math.min.apply(null, v), hi = Math.max.apply(null, v), pad = (hi - lo) * 0.1; lo -= pad; hi += pad;
+  var ax = squareAxes(lo, hi, S, P, function(t){ return (t * 100).toFixed(0) + "%"; });
+  var marks = b.map(function(d){
+    var x = ax.sc(d.p);
+    return '<line x1="' + x + '" x2="' + x + '" y1="' + ax.sy(d.a - 2 * d.se) + '" y2="' + ax.sy(d.a + 2 * d.se) + '" stroke="var(--accent)" stroke-width="2" stroke-linecap="round" opacity=".5"/>' +
+      '<circle cx="' + x + '" cy="' + ax.sy(d.a) + '" r="5.5" fill="var(--accent)" stroke="var(--panel)" stroke-width="2" data-tip="<b>' + d.n +
+      ' champion-patches</b>Forecast ' + pct(d.p) + "<br>Actual " + pct(d.a) + " ± " + (2 * d.se * 100).toFixed(1) + '"/>';
+  }).join("");
+  return '<svg viewBox="0 0 ' + S + " " + S + '" role="img" aria-label="Calibration chart">' + ax.g + marks + "</svg>";
+}
+function missChart(per){
+  var W = 900, H = 280, L = 44, R = 28, T = 12, B = 34;
+  var vals = []; per.forEach(function(p){ [p.miss, p.miss_last, p.luck].forEach(function(x){ if (x != null) vals.push(x); }); });
+  var lo = Math.max(0, Math.min.apply(null, vals) - 0.15), hi = Math.max.apply(null, vals) + 0.1;
+  var x = function(i){ return L + (per.length === 1 ? 0.5 : i / (per.length - 1)) * (W - L - R); };
+  var y = function(v){ return T + (hi - v) / (hi - lo) * (H - T - B); };
+  var g = "";
+  niceTicks(lo, hi, 4).forEach(function(t){
+    g += '<line class="gl" x1="' + L + '" x2="' + (W - R) + '" y1="' + y(t) + '" y2="' + y(t) + '"/><text x="' + (L - 6) + '" y="' + (y(t) + 4) + '" text-anchor="end">' + t.toFixed(1) + "</text>";
+  });
+  var every = Math.ceil(per.length / 12);
+  per.forEach(function(p, i){ if (i % every === 0 || i === per.length - 1) g += '<text x="' + x(i) + '" y="' + (H - 12) + '" text-anchor="middle">' + esc(p.patch) + "</text>"; });
+  function line(k, col, extra){
+    var d = "", first = true;
+    per.forEach(function(p, i){ if (p[k] == null) { first = true; return; } d += (first ? "M" : "L") + x(i).toFixed(1) + "," + y(p[k]).toFixed(1); first = false; });
+    return '<path d="' + d + '" fill="none" stroke="' + col + '" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"' + (extra || "") + "/>";
+  }
+  g += line("luck", "var(--ink2)", ' stroke-dasharray="5 4"') + line("miss_last", "var(--muted)") + line("miss", "var(--accent)");
+  per.forEach(function(p, i){
+    g += '<circle cx="' + x(i) + '" cy="' + y(p.miss) + '" r="4" fill="var(--accent)" stroke="var(--panel)" stroke-width="2"/>';
+    var w = (W - L - R) / Math.max(1, per.length - 1);
+    g += '<rect x="' + (x(i) - w / 2) + '" y="' + T + '" width="' + w + '" height="' + (H - T - B) + '" fill="transparent" data-tip="<b>Patch ' + esc(p.patch) +
+      "</b>PatchCast miss " + fx(p.miss, 2) + "<br>Last-patch miss " + fx(p.miss_last, 2) + "<br>Luck floor " + fx(p.luck, 2) + '"/>';
+  });
+  return '<svg viewBox="0 0 ' + W + " " + H + '" role="img" aria-label="Average miss per patch">' + g + "</svg>";
+}
+})();
+</script>
+</body>
+</html>
