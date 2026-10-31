@@ -1,4 +1,4 @@
-Pipeline started 2026-10-30 20:24  (8 steps)
+Pipeline started 2026-10-31 16:03  (8 steps)
 RAM limit: 5 GB for all steps (change with --max-ram-gb)
 
 ======================================================================
@@ -39,7 +39,7 @@ patch   champions  fetched  cooldown self-check
 formulas by type (all patches):  other 22,715 (7,177 partly captured), magic 13,819 (648 partly captured), physical 7,573 (399 partly captured), heal 4,140 (739 partly captured), shield 2,182 (230 partly captured), true 489 (28 partly captured)
 
 base stats, game files vs Data Dragon:  armor 100% agree, armorperlevel 100% agree, attackdamage 100% agree, attackdamageperlevel 39% agree (2916 zero in Data Dragon), attackrange 100% agree, attackspeed 100% agree, attackspeedperlevel 100% agree, hp 100% agree, hpperlevel 100% agree, movespeed 100% agree, spellblock 100% agree, spellblockperlevel 100% agree
--- done in 0s, peak RAM so far 0.0 GB
+-- done in 1s, peak RAM so far 0.0 GB
 
 ======================================================================
 [2/8] Item passives and tooltips for new patches
@@ -82,53 +82,59 @@ patch   champions  items  champions changed  items changed  ability numbers
  16.19        173    212                 13              1  yes
  16.20        173    212                 15              4  yes
  16.21        173    212                 22              4  yes
--- done in 9s, peak RAM so far 0.1 GB
+-- done in 14s, peak RAM so far 0.1 GB
 
 ======================================================================
 [4/8] Training tables
 ======================================================================
 Champion features: 115 numbers per champion, 28 patches  [RAM 0.4 GB, peak 0.6 GB]
-  loaded 599,311 games / 5,993,131 players  [RAM 1.6 GB, peak 1.8 GB]
-  game numbers: 20,000 / 596,596  [RAM 1.6 GB, peak 2.1 GB]
-  game numbers: 40,000 / 596,596  [RAM 1.7 GB, peak 2.1 GB]
-  game numbers: 60,000 / 596,596  [RAM 1.7 GB, peak 2.1 GB]
-  game numbers: 80,000 / 596,596  [RAM 1.7 GB, peak 2.1 GB]
-  game numbers: 100,000 / 596,596  [RAM 1.7 GB, peak 2.1 GB]
-  game numbers: 120,000 / 596,596  [RAM 1.7 GB, peak 2.1 GB]
-  game numbers: 140,000 / 596,596  [RAM 1.7 GB, peak 2.1 GB]
-  game numbers: 160,000 / 596,596  [RAM 1.7 GB, peak 2.1 GB]
-  game numbers: 180,000 / 596,596  [RAM 1.8 GB, peak 2.1 GB]
-  game numbers: 200,000 / 596,596  [RAM 1.8 GB, peak 2.1 GB]
-  game numbers: 220,000 / 596,596  [RAM 1.8 GB, peak 2.1 GB]
-  game numbers: 240,000 / 596,596  [RAM 1.8 GB, peak 2.2 GB]
-  game numbers: 260,000 / 596,596  [RAM 1.8 GB, peak 2.2 GB]
-  game numbers: 280,000 / 596,596  [RAM 1.9 GB, peak 2.2 GB]
-  game numbers: 300,000 / 596,596  [RAM 1.9 GB, peak 2.2 GB]
-  game numbers: 320,000 / 596,596  [RAM 1.9 GB, peak 2.2 GB]
-  game numbers: 340,000 / 596,596  [RAM 1.9 GB, peak 2.2 GB]
-  game numbers: 360,000 / 596,596  [RAM 1.9 GB, peak 2.2 GB]
-  game numbers: 380,000 / 596,596  [RAM 1.9 GB, peak 2.3 GB]
-  game numbers: 400,000 / 596,596  [RAM 1.9 GB, peak 2.3 GB]
-  game numbers: 420,000 / 596,596  [RAM 2.0 GB, peak 2.3 GB]
-  game numbers: 440,000 / 596,596  [RAM 2.0 GB, peak 2.3 GB]
-  game numbers: 460,000 / 596,596  [RAM 2.0 GB, peak 2.3 GB]
-  game numbers: 480,000 / 596,596  [RAM 2.0 GB, peak 2.3 GB]
-  game numbers: 500,000 / 596,596  [RAM 2.0 GB, peak 2.4 GB]
-  game numbers: 520,000 / 596,596  [RAM 2.0 GB, peak 2.4 GB]
-  game numbers: 540,000 / 596,596  [RAM 2.0 GB, peak 2.4 GB]
-  game numbers: 560,000 / 596,596  [RAM 2.1 GB, peak 2.4 GB]
-  game numbers: 580,000 / 596,596  [RAM 2.1 GB, peak 2.4 GB]
-  game numbers: 596,596 / 596,596  [RAM 2.1 GB, peak 2.4 GB]
-Games: 599,311 collected -> 596,596 kept (dropped: 35 no winner, 2621 under 10 min, 59 missing positions, 0 champion without numbers)
-Games per patch: 16.21 23,284, 16.20 19,884, 16.19 39,805, 16.18 39,232, 16.17 33,154, 16.16 22,933, 16.15 19,904, 16.14 19,898, 16.13 19,912, 16.12 19,917, 16.11 19,930, 16.10 19,907, 16.9 19,914, 16.8 19,896, 16.7 19,912, 16.6 19,926, 16.5 19,929, 16.4 19,925, 16.3 19,925, 16.2 19,929, 16.1 19,945, 15.24 19,926, 15.23 19,963, 15.22 19,907, 15.21 19,924, 15.20 19,920, 15.19 19,895
+  loaded 722,003 games / 7,219,997 players  [RAM 1.8 GB, peak 2.1 GB]
+  game numbers: 20,000 / 718,682  [RAM 1.8 GB, peak 2.4 GB]
+  game numbers: 40,000 / 718,682  [RAM 1.9 GB, peak 2.4 GB]
+  game numbers: 60,000 / 718,682  [RAM 1.9 GB, peak 2.4 GB]
+  game numbers: 80,000 / 718,682  [RAM 1.9 GB, peak 2.4 GB]
+  game numbers: 100,000 / 718,682  [RAM 1.9 GB, peak 2.4 GB]
+  game numbers: 120,000 / 718,682  [RAM 1.9 GB, peak 2.4 GB]
+  game numbers: 140,000 / 718,682  [RAM 1.9 GB, peak 2.4 GB]
+  game numbers: 160,000 / 718,682  [RAM 2.0 GB, peak 2.4 GB]
+  game numbers: 180,000 / 718,682  [RAM 2.0 GB, peak 2.4 GB]
+  game numbers: 200,000 / 718,682  [RAM 2.0 GB, peak 2.4 GB]
+  game numbers: 220,000 / 718,682  [RAM 2.0 GB, peak 2.4 GB]
+  game numbers: 240,000 / 718,682  [RAM 2.0 GB, peak 2.4 GB]
+  game numbers: 260,000 / 718,682  [RAM 2.0 GB, peak 2.4 GB]
+  game numbers: 280,000 / 718,682  [RAM 2.1 GB, peak 2.4 GB]
+  game numbers: 300,000 / 718,682  [RAM 2.1 GB, peak 2.4 GB]
+  game numbers: 320,000 / 718,682  [RAM 2.1 GB, peak 2.4 GB]
+  game numbers: 340,000 / 718,682  [RAM 2.1 GB, peak 2.4 GB]
+  game numbers: 360,000 / 718,682  [RAM 2.1 GB, peak 2.5 GB]
+  game numbers: 380,000 / 718,682  [RAM 2.1 GB, peak 2.5 GB]
+  game numbers: 400,000 / 718,682  [RAM 2.2 GB, peak 2.5 GB]
+  game numbers: 420,000 / 718,682  [RAM 2.2 GB, peak 2.5 GB]
+  game numbers: 440,000 / 718,682  [RAM 2.2 GB, peak 2.5 GB]
+  game numbers: 460,000 / 718,682  [RAM 2.2 GB, peak 2.5 GB]
+  game numbers: 480,000 / 718,682  [RAM 2.2 GB, peak 2.5 GB]
+  game numbers: 500,000 / 718,682  [RAM 2.2 GB, peak 2.6 GB]
+  game numbers: 520,000 / 718,682  [RAM 2.2 GB, peak 2.6 GB]
+  game numbers: 540,000 / 718,682  [RAM 2.3 GB, peak 2.6 GB]
+  game numbers: 560,000 / 718,682  [RAM 2.3 GB, peak 2.6 GB]
+  game numbers: 580,000 / 718,682  [RAM 2.3 GB, peak 2.6 GB]
+  game numbers: 600,000 / 718,682  [RAM 2.3 GB, peak 2.6 GB]
+  game numbers: 620,000 / 718,682  [RAM 2.3 GB, peak 2.7 GB]
+  game numbers: 640,000 / 718,682  [RAM 2.3 GB, peak 2.7 GB]
+  game numbers: 660,000 / 718,682  [RAM 2.4 GB, peak 2.7 GB]
+  game numbers: 680,000 / 718,682  [RAM 2.4 GB, peak 2.7 GB]
+  game numbers: 700,000 / 718,682  [RAM 2.4 GB, peak 2.7 GB]
+  game numbers: 718,682 / 718,682  [RAM 2.4 GB, peak 2.7 GB]
+Games: 722,003 collected -> 718,682 kept (dropped: 42 no winner, 3208 under 10 min, 71 missing positions, 0 champion without numbers)
+Games per patch: 16.21 39,823, 16.20 39,777, 16.19 39,805, 16.18 39,776, 16.17 39,776, 16.16 39,817, 16.15 39,805, 16.14 39,787, 16.13 34,225, 16.12 27,418, 16.11 19,930, 16.10 19,907, 16.9 19,914, 16.8 19,896, 16.7 19,912, 16.6 19,926, 16.5 19,929, 16.4 19,925, 16.3 19,925, 16.2 19,929, 16.1 19,945, 15.24 19,926, 15.23 19,963, 15.22 19,907, 15.21 19,924, 15.20 19,920, 15.19 19,895
 Model inputs per game: 165 numbers (+10 champion ids, + platform and rank)
 Blue side win rate: 49.4%  |  timeline gold@15 available: 25% of games
-Performance stats (damage, gold, CS, ... per minute): 4,649 champion-patches  [RAM 1.5 GB, peak 4.2 GB]
-Item changes: 20 patches with changed items; 779 champion-patches where 10%+ of builds had a changed item  [RAM 1.5 GB, peak 4.2 GB]
-Champion-patch rows: 4,820 (4,649 with games; median 1044 games per champion per patch)
-  tables built  [RAM 1.5 GB, peak 4.2 GB]
+Performance stats (damage, gold, CS, ... per minute): 4,649 champion-patches  [RAM 1.7 GB, peak 4.9 GB]
+Item changes: 20 patches with changed items; 781 champion-patches where 10%+ of builds had a changed item  [RAM 1.7 GB, peak 4.9 GB]
+Champion-patch rows: 4,820 (4,649 with games; median 1220 games per champion per patch)
+  tables built  [RAM 1.7 GB, peak 4.9 GB]
 Saved training\games.parquet and training\champion_patch.parquet
--- done in 2.6 min, peak RAM so far 4.2 GB
+-- done in 4.8 min, peak RAM so far 4.9 GB
 
 ======================================================================
 [5/8] Baselines
@@ -212,69 +218,69 @@ patch          baseline  champions      MAE noise floor change corr direction  c
 16.11 shrunk last patch        172 1.43 pts    1.13 pts                                     8
 16.11    recent patches        172 1.35 pts    1.13 pts                                     8
 16.11   balance changes        172 1.43 pts    1.13 pts        0.61      0.62               8
-16.12         coin flip        172 1.65 pts    1.13 pts                                    14
-16.12   nothing changes        172 1.76 pts    1.13 pts                                    14
-16.12 shrunk last patch        172 1.57 pts    1.13 pts                                    14
-16.12    recent patches        172 1.47 pts    1.13 pts                                    14
-16.12   balance changes        172 1.57 pts    1.13 pts        0.71      0.71              14
-16.13         coin flip        172 1.58 pts    1.13 pts                                    16
-16.13   nothing changes        172 1.67 pts    1.13 pts                                    16
-16.13 shrunk last patch        172 1.42 pts    1.13 pts                                    16
-16.13    recent patches        172 1.37 pts    1.13 pts                                    16
-16.13   balance changes        172 1.47 pts    1.13 pts        0.60      0.88              16
-16.14         coin flip        173 1.48 pts    1.13 pts                                     9
-16.14   nothing changes        173 1.51 pts    1.13 pts                                     9
-16.14 shrunk last patch        173 1.35 pts    1.13 pts                                     9
-16.14    recent patches        173 1.30 pts    1.13 pts                                     9
-16.14   balance changes        173 1.36 pts    1.13 pts        0.82      0.56               9
-16.15         coin flip        173 1.57 pts    1.13 pts                                    11
-16.15   nothing changes        173 1.63 pts    1.13 pts                                    11
-16.15 shrunk last patch        173 1.41 pts    1.13 pts                                    11
-16.15    recent patches        173 1.38 pts    1.13 pts                                    11
-16.15   balance changes        173 1.39 pts    1.13 pts        0.53      0.55              11
-16.16         coin flip        173 1.55 pts    1.05 pts                                    35
-16.16   nothing changes        173 1.49 pts    1.05 pts                                    35
-16.16 shrunk last patch        173 1.35 pts    1.05 pts                                    35
-16.16    recent patches        173 1.28 pts    1.05 pts                                    35
-16.16   balance changes        173 1.35 pts    1.05 pts        0.25      0.69              35
-16.17         coin flip        173 1.29 pts    0.87 pts                                    14
-16.17   nothing changes        173 1.35 pts    0.87 pts                                    14
-16.17 shrunk last patch        173 1.10 pts    0.87 pts                                    14
-16.17    recent patches        173 1.01 pts    0.87 pts                                    14
-16.17   balance changes        173 1.13 pts    0.87 pts        0.66      0.71              14
-16.18         coin flip        173 1.22 pts    0.80 pts                                    11
-16.18   nothing changes        173 1.14 pts    0.80 pts                                    11
-16.18 shrunk last patch        173 1.02 pts    0.80 pts                                    11
-16.18    recent patches        173 0.95 pts    0.80 pts                                    11
-16.18   balance changes        173 1.03 pts    0.80 pts        0.67      0.73              11
+16.12         coin flip        172 1.49 pts    0.96 pts                                    14
+16.12   nothing changes        172 1.62 pts    0.96 pts                                    14
+16.12 shrunk last patch        172 1.39 pts    0.96 pts                                    14
+16.12    recent patches        172 1.31 pts    0.96 pts                                    14
+16.12   balance changes        172 1.39 pts    0.96 pts        0.69      0.79              14
+16.13         coin flip        172 1.34 pts    0.86 pts                                    16
+16.13   nothing changes        172 1.34 pts    0.86 pts                                    16
+16.13 shrunk last patch        172 1.21 pts    0.86 pts                                    16
+16.13    recent patches        172 1.11 pts    0.86 pts                                    16
+16.13   balance changes        172 1.27 pts    0.86 pts        0.59      0.75              16
+16.14         coin flip        173 1.16 pts    0.80 pts                                     9
+16.14   nothing changes        173 1.25 pts    0.80 pts                                     9
+16.14 shrunk last patch        173 1.05 pts    0.80 pts                                     9
+16.14    recent patches        173 0.96 pts    0.80 pts                                     9
+16.14   balance changes        173 1.05 pts    0.80 pts        0.79      0.78               9
+16.15         coin flip        173 1.30 pts    0.80 pts                                    11
+16.15   nothing changes        173 1.11 pts    0.80 pts                                    11
+16.15 shrunk last patch        173 1.13 pts    0.80 pts                                    11
+16.15    recent patches        173 1.07 pts    0.80 pts                                    11
+16.15   balance changes        173 1.13 pts    0.80 pts        0.53      0.64              11
+16.16         coin flip        173 1.29 pts    0.80 pts                                    35
+16.16   nothing changes        173 1.22 pts    0.80 pts                                    35
+16.16 shrunk last patch        173 1.08 pts    0.80 pts                                    35
+16.16    recent patches        173 0.98 pts    0.80 pts                                    35
+16.16   balance changes        173 1.08 pts    0.80 pts        0.39      0.71              35
+16.17         coin flip        173 1.19 pts    0.80 pts                                    14
+16.17   nothing changes        173 1.06 pts    0.80 pts                                    14
+16.17 shrunk last patch        173 0.99 pts    0.80 pts                                    14
+16.17    recent patches        173 0.91 pts    0.80 pts                                    14
+16.17   balance changes        173 1.02 pts    0.80 pts        0.59      0.71              14
+16.18         coin flip        173 1.21 pts    0.80 pts                                    11
+16.18   nothing changes        173 1.08 pts    0.80 pts                                    11
+16.18 shrunk last patch        173 1.01 pts    0.80 pts                                    11
+16.18    recent patches        173 0.91 pts    0.80 pts                                    11
+16.18   balance changes        173 1.02 pts    0.80 pts        0.65      0.73              11
 16.19         coin flip        173 1.31 pts    0.80 pts                                    13
-16.19   nothing changes        173 1.07 pts    0.80 pts                                    13
-16.19 shrunk last patch        173 1.05 pts    0.80 pts                                    13
-16.19    recent patches        173 0.90 pts    0.80 pts                                    13
-16.19   balance changes        173 1.04 pts    0.80 pts        0.57      0.62              13
-16.20         coin flip        173 1.49 pts    1.13 pts                                    15
-16.20   nothing changes        173 1.39 pts    1.13 pts                                    15
-16.20 shrunk last patch        173 1.33 pts    1.13 pts                                    15
-16.20    recent patches        173 1.22 pts    1.13 pts                                    15
-16.20   balance changes        173 1.32 pts    1.13 pts        0.14      0.47              15
-16.21         coin flip        173 1.54 pts    1.04 pts                                    22
-16.21   nothing changes        173 1.61 pts    1.04 pts                                    22
-16.21 shrunk last patch        173 1.40 pts    1.04 pts                                    22
-16.21    recent patches        173 1.28 pts    1.04 pts                                    22
-16.21   balance changes        173 1.39 pts    1.04 pts        0.54      0.64              22
+16.19   nothing changes        173 1.06 pts    0.80 pts                                    13
+16.19 shrunk last patch        173 1.04 pts    0.80 pts                                    13
+16.19    recent patches        173 0.89 pts    0.80 pts                                    13
+16.19   balance changes        173 1.02 pts    0.80 pts        0.57      0.62              13
+16.20         coin flip        173 1.27 pts    0.80 pts                                    15
+16.20   nothing changes        173 1.20 pts    0.80 pts                                    15
+16.20 shrunk last patch        173 1.09 pts    0.80 pts                                    15
+16.20    recent patches        173 0.96 pts    0.80 pts                                    15
+16.20   balance changes        173 1.09 pts    0.80 pts        0.02      0.40              15
+16.21         coin flip        173 1.36 pts    0.80 pts                                    22
+16.21   nothing changes        173 1.30 pts    0.80 pts                                    22
+16.21 shrunk last patch        173 1.19 pts    0.80 pts                                    22
+16.21    recent patches        173 1.05 pts    0.80 pts                                    22
+16.21   balance changes        173 1.17 pts    0.80 pts        0.65      0.55              22
 
 Overall (all evaluated patches):
-  coin flip          MAE 1.45 pts   (noise floor 1.08 pts, +0.37 above it)
-  nothing changes    MAE 1.57 pts   (noise floor 1.08 pts, +0.49 above it)
-  shrunk last patch  MAE 1.34 pts   (noise floor 1.08 pts, +0.25 above it)
-  recent patches     MAE 1.26 pts   (noise floor 1.08 pts, +0.18 above it)
-  balance changes    MAE 1.35 pts   (noise floor 1.08 pts, +0.27 above it)
+  coin flip          MAE 1.39 pts   (noise floor 1.01 pts, +0.38 above it)
+  nothing changes    MAE 1.48 pts   (noise floor 1.01 pts, +0.47 above it)
+  shrunk last patch  MAE 1.27 pts   (noise floor 1.01 pts, +0.26 above it)
+  recent patches     MAE 1.18 pts   (noise floor 1.00 pts, +0.18 above it)
+  balance changes    MAE 1.28 pts   (noise floor 1.00 pts, +0.28 above it)
 
 Evaluated 26 patch(es): 15.20, 15.21, 15.22, 15.23, 15.24, 16.1, 16.2, 16.3, 16.4, 16.5, 16.6, 16.7, 16.8, 16.9, 16.10, 16.11, 16.12, 16.13, 16.14, 16.15, 16.16, 16.17, 16.18, 16.19, 16.20, 16.21. Each was predicted using only earlier patches, so early patches have little history to learn from.
 
 Changed champions, predicted vs actual winrate change (biggest predictions):
     16.4 Udyr           predicted  -7.7  actual  -4.5  (561 games)
-   16.13 Kaisa          predicted  +7.5  actual  +1.0  (2480 games)
+   16.13 Kaisa          predicted  +7.6  actual  +1.8  (4416 games)
     16.4 KSante         predicted  +7.2  actual  -0.1  (1000 games)
     16.1 Kindred        predicted  -6.6  actual  -3.7  (433 games)
     16.1 Lucian         predicted  +6.4  actual  +3.6  (2937 games)
@@ -284,10 +290,10 @@ Changed champions, predicted vs actual winrate change (biggest predictions):
     16.9 Shyvana        predicted  -5.0  actual  -2.4  (1086 games)
    15.21 Yunara         predicted  +4.9  actual  +1.5  (2194 games)
     16.9 XinZhao        predicted  -4.8  actual  -0.2  (2484 games)
-    16.1 MissFortune    predicted  -4.6  actual  -1.4  (1563 games)
+   16.15 Locke          predicted  -4.7  actual  -4.5  (3902 games)
 
 Saved training\baseline_results.csv
--- done in 1s, peak RAM so far 4.2 GB
+-- done in 1s, peak RAM so far 4.9 GB
 
 ======================================================================
 [6/8] Patch-change model
@@ -317,114 +323,114 @@ Average miss in winrate points (lower is better) - each patch predicted from ear
    16.9    300 direct |  1.12   1.50   1.43   1.43 |  11  1.05   1.65   1.22   1.05   0.95  0.75
   16.10   none direct |  1.13   1.30   1.19   1.19 |  12  0.92   1.14   1.07   1.07   1.10  1.00
   16.11   none direct |  1.13   1.43   1.36   1.36 |   8  1.14   2.19   2.12   2.12   2.12     -
-  16.12   none direct |  1.13   1.57   1.45   1.45 |  14  0.95   1.80   1.57   1.57   2.59  0.42
-  16.13    300 direct |  1.13   1.42   1.35   1.35 |  16  1.11   1.10   1.17   1.20   1.88  0.60
-  16.14    300 direct |  1.13   1.35   1.30   1.28 |   9  0.94   1.07   1.30   1.06   1.91  0.75
-  16.15    300 direct |  1.13   1.41   1.38   1.36 |  11  1.07   2.10   2.02   1.68   1.65  0.67
-  16.16    100 direct |  1.05   1.35   1.28   1.31 |  35  0.95   1.26   1.36   1.44   1.63  0.43
-  16.17    300 direct |  0.87   1.10   0.99   1.00 |  14  0.75   0.69   0.94   0.92   1.16  0.75
-  16.18   none direct |  0.80   1.02   0.93   0.93 |  11  0.73   0.73   0.94   0.94   0.70  0.71
-  16.19   none   perf |  0.80   1.05   0.86   0.86 |  13  0.83   1.24   0.89   0.89   0.90  0.64
-  16.20   1000 direct |  1.13   1.33   1.18   1.17 |  15  1.24   1.72   1.53   1.37   1.22  0.83
-  16.21     30 direct |  1.04   1.40   1.26   1.21 |  22  0.93   1.77   1.65   1.32   1.32  0.71
+  16.12   none direct |  0.96   1.39   1.30   1.30 |  14  0.81   1.66   1.61   1.61   2.44  0.50
+  16.13    100 direct |  0.86   1.21   1.06   1.07 |  16  0.84   1.15   1.02   1.12   1.66  0.50
+  16.14     30 direct |  0.80   1.05   0.95   0.96 |   9  0.66   1.19   1.45   1.53   2.20  0.56
+  16.15    300 direct |  0.80   1.13   1.05   1.02 |  11  0.75   1.73   1.63   1.23   1.32  0.88
+  16.16    300 direct |  0.80   1.08   0.93   0.96 |  35  0.72   1.12   0.83   0.89   1.15  0.50
+  16.17   1000 direct |  0.80   0.99   0.89   0.89 |  14  0.69   0.71   1.03   0.98   1.19  0.78
+  16.18   3000 direct |  0.80   1.01   0.89   0.89 |  11  0.73   0.85   1.00   0.93   0.65  0.71
+  16.19   none direct |  0.80   1.04   0.87   0.87 |  13  0.83   1.19   0.90   0.90   0.72  0.86
+  16.20     30   perf |  0.80   1.09   0.94   0.93 |  15  0.88   1.49   1.24   1.12   1.10  0.67
+  16.21     30 direct |  0.80   1.19   1.05   0.99 |  22  0.71   1.26   1.21   0.85   0.87  0.80
 
-All champions:     last 1.33 | base 1.24 | best 1.24   (noise floor 1.08)
-Changed champions: last 1.41 | base 1.37 | best 1.36 | bold 1.55   (noise floor 1.01)
-Best guess switched on for 14 of 24 patches. Bold scale: 1.0x on the latest patch.
-Bold direction right (changed champions, 100+ games): 62%   |   for the 3 biggest predicted movers per patch: 68% of 63
+All champions:     last 1.26 | base 1.16 | best 1.16   (noise floor 1.00)
+Changed champions: last 1.35 | base 1.27 | best 1.27 | bold 1.45   (noise floor 0.93)
+Best guess switched on for 15 of 24 patches. Bold scale: 1.5x on the latest patch.
+Bold direction right (changed champions, 100+ games): 63%   |   for the 3 biggest predicted movers per patch: 65% of 63
   (50% = coin flip)
 Route chosen: direct 18x, perf 3x, avg 3x
 
 Biggest bold predictions vs what happened (change beyond expected strength):
-   16.15 Locke          bold  -6.6  best  -1.6  actual  -4.1  (2007 games, right direction)
-   16.12 Orianna        bold  -5.0  best  -0.0  actual  -1.2  (619 games, right direction)
+   16.15 Locke          bold  -6.9  best  -1.4  actual  -4.2  (3902 games, right direction)
+   16.12 Orianna        bold  -5.0  best  -0.0  actual  -0.7  (844 games, right direction)
     16.2 Rengar         bold  -4.9  best  -0.8  actual  +1.2  (1091 games, wrong direction)
-   16.12 Ryze           bold  -4.4  best  -0.0  actual  -3.5  (950 games, right direction)
+   16.12 Ryze           bold  -4.4  best  -0.0  actual  -3.2  (1343 games, right direction)
     16.2 Nunu           bold  +4.3  best  +0.7  actual  -4.8  (617 games, wrong direction)
+   16.17 Gragas         bold  -4.2  best  -0.9  actual  -0.8  (1572 games, right direction)
     16.2 Viego          bold  +4.0  best  +0.7  actual  -0.4  (3378 games, wrong direction)
     16.2 Jayce          bold  -4.0  best  -0.7  actual  +1.1  (2662 games, wrong direction)
     16.2 Taliyah        bold  +3.8  best  +0.7  actual  +1.8  (1244 games, right direction)
-   16.14 Seraphine      bold  -3.8  best  -0.7  actual  -0.6  (2453 games, right direction)
-   16.12 Sylas          bold  +3.7  best  +0.0  actual  +0.4  (4363 games, right direction)
-   16.14 Locke          bold  -3.7  best  -0.7  actual  -0.7  (2153 games, right direction)
-   16.15 Naafiri        bold  -3.2  best  -0.8  actual  +1.8  (1194 games, wrong direction)
-   16.13 Bard           bold  -3.1  best  -0.5  actual  -0.6  (1730 games, right direction)
-   16.13 Cassiopeia     bold  -3.0  best  -0.5  actual  +0.4  (704 games, wrong direction)
+   16.12 Sylas          bold  +3.7  best  +0.0  actual  +1.3  (6059 games, right direction)
+   16.15 Naafiri        bold  -3.7  best  -0.8  actual  -0.6  (2301 games, right direction)
+   16.14 Locke          bold  -3.3  best  -0.9  actual  +0.6  (4408 games, wrong direction)
+   16.13 Vex            bold  +3.2  best  +0.7  actual  +0.6  (914 games, right direction)
+   16.13 Cassiopeia     bold  -3.1  best  -0.7  actual  +0.2  (1313 games, wrong direction)
     16.2 Zed            bold  -3.0  best  -0.5  actual  +0.7  (2288 games, wrong direction)
 
 Performance route, step 1 check - do balance changes predict how each stat changed?
 (affected champions on patches the model never saw; r: 0 = no, 1 = perfectly)
-  pick+ban rate      r = +0.28   direction right 55%   (993 champion-patches)
-  healing/min        r = +0.15   direction right 52%   (993 champion-patches)
-  deaths/min         r = +0.12   direction right 53%   (993 champion-patches)
-  kills/min          r = +0.12   direction right 54%   (993 champion-patches)
-  damage/min         r = +0.04   direction right 48%   (993 champion-patches)
-  damage taken/min   r = +0.04   direction right 53%   (993 champion-patches)
-  gold/min           r = +0.00   direction right 60%   (993 champion-patches)
-  gold@15            r = -0.09   direction right 58%   (992 champion-patches)
-  CS/min             r = -0.10   direction right 48%   (993 champion-patches)
-  XP@15              r = -0.26   direction right 42%   (992 champion-patches)
--- done in 25s, peak RAM so far 4.2 GB
+  pick+ban rate      r = +0.32   direction right 55%   (996 champion-patches)
+  kills/min          r = +0.18   direction right 54%   (996 champion-patches)
+  healing/min        r = +0.16   direction right 52%   (996 champion-patches)
+  deaths/min         r = +0.12   direction right 50%   (996 champion-patches)
+  damage/min         r = +0.11   direction right 49%   (996 champion-patches)
+  gold/min           r = +0.07   direction right 59%   (996 champion-patches)
+  damage taken/min   r = +0.04   direction right 53%   (996 champion-patches)
+  gold@15            r = +0.00   direction right 59%   (995 champion-patches)
+  CS/min             r = -0.04   direction right 48%   (996 champion-patches)
+  XP@15              r = -0.19   direction right 42%   (995 champion-patches)
+-- done in 29s, peak RAM so far 4.9 GB
 
 ======================================================================
 [7/8] Champion strength model
 ======================================================================
 Device: GPU (NVIDIA GeForce RTX 3060 Ti)
-596,596 games, 27 patches, 121 numbers per champion
+718,682 games, 27 patches, 121 numbers per champion
 Testing on 6 patch(es): 16.16, 16.17, 16.18, 16.19, 16.20, 16.21
-  16.16: training on 418,304 games from 21 earlier patch(es)
-    trained 6 passes over 376,309 games in 11s (validation log loss 0.6890)
-    game AUC 0.553 (log loss 0.6887 vs coin 0.6930) | champion miss 1.41 pts (floor 1.05), changed 1.46 | biggest predicted effect 1.2 pts
-  16.17: training on 441,237 games from 22 earlier patch(es)
-    trained 7 passes over 396,956 games in 12s (validation log loss 0.6897)
-    game AUC 0.553 (log loss 0.6888 vs coin 0.6931) | champion miss 1.12 pts (floor 0.87), changed 1.08 | biggest predicted effect 2.1 pts
-  16.18: training on 474,391 games from 23 earlier patch(es)
-    trained 7 passes over 426,780 games in 12s (validation log loss 0.6893)
-    game AUC 0.551 (log loss 0.6891 vs coin 0.6931) | champion miss 1.02 pts (floor 0.80), changed 1.18 | biggest predicted effect 1.3 pts
-  16.19: training on 513,623 games from 24 earlier patch(es)
-    trained 3 passes over 462,176 games in 8s (validation log loss 0.6891)
-    game AUC 0.552 (log loss 0.6889 vs coin 0.6931) | champion miss 1.00 pts (floor 0.80), changed 0.66 | biggest predicted effect 1.0 pts
-  16.20: training on 553,428 games from 25 earlier patch(es)
-    trained 6 passes over 497,947 games in 13s (validation log loss 0.6884)
-    game AUC 0.548 (log loss 0.6899 vs coin 0.6930) | champion miss 1.37 pts (floor 1.13), changed 1.79 | biggest predicted effect 1.3 pts
-  16.21: training on 573,312 games from 26 earlier patch(es)
-    trained 9 passes over 515,812 games in 19s (validation log loss 0.6884)
-    game AUC 0.555 (log loss 0.6887 vs coin 0.6929) | champion miss 1.33 pts (floor 1.04), changed 1.55 | biggest predicted effect 2.0 pts
+  16.16: training on 479,908 games from 21 earlier patch(es)
+    trained 5 passes over 431,767 games in 11s (validation log loss 0.6888)
+    game AUC 0.553 (log loss 0.6888 vs coin 0.6930) | champion miss 1.07 pts (floor 0.80), changed 1.11 | biggest predicted effect 1.5 pts
+  16.17: training on 519,725 games from 22 earlier patch(es)
+    trained 7 passes over 467,636 games in 15s (validation log loss 0.6891)
+    game AUC 0.554 (log loss 0.6887 vs coin 0.6930) | champion miss 0.98 pts (floor 0.80), changed 1.25 | biggest predicted effect 1.3 pts
+  16.18: training on 559,501 games from 23 earlier patch(es)
+    trained 10 passes over 503,390 games in 20s (validation log loss 0.6887)
+    game AUC 0.552 (log loss 0.6891 vs coin 0.6931) | champion miss 1.04 pts (floor 0.80), changed 1.30 | biggest predicted effect 0.9 pts
+  16.19: training on 599,277 games from 24 earlier patch(es)
+    trained 4 passes over 539,140 games in 12s (validation log loss 0.6890)
+    game AUC 0.556 (log loss 0.6881 vs coin 0.6931) | champion miss 0.97 pts (floor 0.80), changed 0.73 | biggest predicted effect 0.9 pts
+  16.20: training on 639,082 games from 25 earlier patch(es)
+    trained 8 passes over 574,931 games in 19s (validation log loss 0.6887)
+    game AUC 0.549 (log loss 0.6895 vs coin 0.6930) | champion miss 1.03 pts (floor 0.80), changed 1.49 | biggest predicted effect 1.8 pts
+  16.21: training on 678,859 games from 26 earlier patch(es)
+    trained 11 passes over 610,867 games in 26s (validation log loss 0.6879)
+    game AUC 0.558 (log loss 0.6877 vs coin 0.6930) | champion miss 1.06 pts (floor 0.80), changed 1.11 | biggest predicted effect 1.5 pts
 
-Game level: AUC 0.552, log loss 0.6890 vs coin flip 0.6930
-Champion level: average miss 1.21 pts (noise floor 0.95); changed champions 1.35 pts (floor 0.93)
-Direction right for changed champions (100+ games): 68%  (50% = coin flip)
+Game level: AUC 0.554, log loss 0.6887 vs coin flip 0.6930
+Champion level: average miss 1.03 pts (noise floor 0.80); changed champions 1.16 pts (floor 0.75)
+Direction right for changed champions (100+ games): 59%  (50% = coin flip)
 
 Biggest predicted patch effects vs what happened:
-   16.17 Vayne          predicted  +2.1  actual  -1.4  (1288 games, wrong)  item_changed_share +0.1
-   16.21 Rammus         predicted  -2.0  actual  +0.0  (256 games, wrong)  item_changed_share -0.6; raw_buff -0.1
-   16.21 Viktor         predicted  -1.9  actual  -1.8  (1974 games, right)  raw_buff -0.1
-   16.20 Kindred        predicted  -1.3  actual  +0.4  (760 games, wrong)  
-   16.18 MasterYi       predicted  +1.3  actual  -1.4  (1972 games, wrong)  item_passive_buff -0.2; item_changed_share -0.1
-   16.17 Yone           predicted  +1.2  actual  +2.8  (5417 games, right)  item_changed_share +0.1; item_stat_buff -0.1
-   16.16 Camille        predicted  +1.2  actual  +0.2  (2141 games, right)  item_changed_share -0.2; item_passive_buff +0.1
-   16.20 Lucian         predicted  +1.1  actual  +0.1  (1888 games, right)  raw_buff +0.1
-   16.19 Lillia         predicted  +1.0  actual  +1.3  (1762 games, right)  
-   16.16 Senna          predicted  +1.0  actual  -1.2  (1594 games, wrong)  item_changed_share -0.2; item_stat_buff +0.1
-   16.21 Nidalee        predicted  -1.0  actual  +1.0  (1168 games, wrong)  item_changed_share -0.4; raw_buff +0.3
-   16.20 Kennen         predicted  -1.0  actual  +2.0  (571 games, wrong)  item_changed_share -0.2
-   16.17 AurelionSol    predicted  +1.0  actual  -0.8  (989 games, wrong)  
-   16.21 Tristana       predicted  -0.9  actual  -2.9  (2122 games, right)  raw_buff -0.1
-   16.21 Orianna        predicted  -0.9  actual  -0.1  (1428 games, right)  item_changed_share -0.3; raw_buff -0.1; item_passive_buff +0.1
+   16.20 Kennen         predicted  -1.8  actual  +1.2  (1110 games, wrong)  item_changed_share -0.6; raw_buff -0.5
+   16.21 Rammus         predicted  -1.5  actual  -0.8  (477 games, right)  raw_buff +0.1
+   16.16 Camille        predicted  +1.5  actual  -0.9  (3709 games, wrong)  item_changed_share +0.1
+   16.17 Chogath        predicted  +1.3  actual  +1.3  (3140 games, right)  
+   16.21 MissFortune    predicted  +1.2  actual  +1.0  (2921 games, right)  
+   16.21 Viktor         predicted  -1.2  actual  -2.8  (3347 games, right)  raw_buff -0.1; stat_movespeed -0.1
+   16.16 Senna          predicted  +1.2  actual  -0.1  (2870 games, wrong)  item_changed_share +0.2
+   16.17 AurelionSol    predicted  +1.2  actual  -1.8  (1217 games, wrong)  
+   16.17 Vayne          predicted  +1.0  actual  -3.1  (1536 games, wrong)  
+   16.20 Lucian         predicted  +1.0  actual  -0.2  (3805 games, wrong)  raw_buff +0.1
+   16.19 Lillia         predicted  +0.9  actual  +0.4  (1762 games, right)  raw_buff +0.1
+   16.20 Vayne          predicted  +0.9  actual  -1.1  (1455 games, wrong)  item_changed_share +0.1
+   16.17 Xerath         predicted  -0.9  actual  -0.4  (2821 games, right)  
+   16.18 MasterYi       predicted  -0.9  actual  +0.5  (2027 games, wrong)  item_changed_share -0.7; item_passive_buff -0.4; raw_buff +0.4
+   16.20 Smolder        predicted  +0.8  actual  -3.4  (1411 games, wrong)  raw_buff +0.4; total_heal_ratio_ad_bonus -0.1
 
 Training the final model on all games ...
-    trained 5 passes over 536,726 games in 12s (validation log loss 0.6885)
+    trained 6 passes over 646,734 games in 18s (validation log loss 0.6886)
   saved models/strength_model.pt
   champions the numbers explain least (their own correction, points):
      Ezreal         -3.0
-     Kindred        +2.4
-     TahmKench      -2.0
-     RekSai         +2.0
-     Corki          -1.9
-     Braum          +1.8
-     Aurora         -1.7
-     Yone           -1.7
--- done in 1.8 min, peak RAM so far 4.2 GB
+     RekSai         +2.7
+     Braum          +2.4
+     Quinn          +2.4
+     Kindred        +2.3
+     Janna          +1.9
+     Mel            -1.9
+     Kaisa          -1.9
+-- done in 2.4 min, peak RAM so far 4.9 GB
 
 ======================================================================
 [8/8] Diagnostics report
@@ -432,9 +438,9 @@ Training the final model on all games ...
 Saved report.html  (open it in your browser)
 Saved training\diagnostics_breakdown.csv
 
-In short: average miss 1.21 pts, of which luck explains 1.05; the model's own error is 0.75 pts. 92% of predictions are within 2 luck wobbles (luck alone: 95%).
--- done in 6s, peak RAM so far 4.2 GB
+In short: average miss 1.10 pts, of which luck explains 0.95; the model's own error is 0.72 pts. 91% of predictions are within 2 luck wobbles (luck alone: 95%).
+-- done in 6s, peak RAM so far 4.9 GB
 
-All 8 steps finished in 5.1 min. Full output saved to pipeline.log
+All 8 steps finished in 8.1 min. Full output saved to pipeline.log
 Diagnostics: open report.html in your browser.
 Copied 18 result files to results\ (to share: git add results, commit, push)
