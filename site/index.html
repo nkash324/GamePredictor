@@ -247,6 +247,11 @@ $("#foot").innerHTML = "PatchCast · patch " + esc(D.patch) + " · built " + esc
 
 // ================= FORECAST =================
 var F = D.forecast.slice();
+// change from last patch's real winrate: what the forecast expected vs what really happened
+F.forEach(function(c){
+  c.pchg = (c.last != null && c.predicted != null) ? c.predicted - c.last : null;
+  c.achg = (c.last != null && c.actual != null) ? c.actual - c.last : null;
+});
 var changed = F.filter(function(c){ return c.changed; });
 var itemHit = F.filter(function(c){ return c.items; });
 $("#fc-title").textContent = "Patch " + D.patch + " forecast";
@@ -282,8 +287,10 @@ $("#onlych").onchange = function(){ state.only = this.checked; drawTable(); };
 
 var COLS = [
   {k:"name", t:"Champion"}, {k:"role", t:"Role"},
-  {k:"predicted", t:"Forecast", num:true}, {k:"impact", t:"Patch effect", num:true},
-  {k:"actual", t:"Actual so far", num:true}, {k:"games", t:"Games", num:true}
+  {k:"last", t:"Last patch", num:true}, {k:"predicted", t:"Forecast", num:true},
+  {k:"pchg", t:"Predicted change", num:true}, {k:"actual", t:"Actual so far", num:true},
+  {k:"achg", t:"Actual change", num:true}, {k:"impact", t:"Patch effect", num:true},
+  {k:"games", t:"Games", num:true}
 ];
 function drawHead(){
   $("#fc-table thead").innerHTML = "<tr>" + COLS.map(function(c){
@@ -318,15 +325,19 @@ function drawTable(){
       '<td><div class="who">' + icon(c.id) + "<span>" + esc(c.name) +
         (c.changed ? '<span class="tag">changed</span>' : c.items ? '<span class="tag">items</span>' : "") + "</span></div></td>" +
       "<td>" + esc(ROLE[c.role] || c.role || "") + "</td>" +
+      '<td class="num">' + pct(c.last) + "</td>" +
       '<td class="num"><b>' + pct(c.predicted) + '</b> <span class="rng">' + pct(c.low, 0) + "–" + pct(c.high, 0) + "</span></td>" +
-      '<td class="num"' + (why ? ' data-tip="' + esc(why) + '"' : "") + ">" + ((c.changed || c.items) ? arrow(c.impact) : '<span class="flat">–</span>') + "</td>" +
+      '<td class="num">' + arrow(c.pchg) + "</td>" +
       '<td class="num">' + pct(c.actual) + "</td>" +
+      '<td class="num">' + arrow(c.achg) + "</td>" +
+      '<td class="num"' + (why ? ' data-tip="' + esc(why) + '"' : "") + ">" + ((c.changed || c.items) ? arrow(c.impact) : '<span class="flat">–</span>') + "</td>" +
       '<td class="num">' + (c.games ? c.games.toLocaleString() : "–") + "</td></tr>";
-  }).join("") : '<tr><td colspan="6" class="empty">No champions match.</td></tr>';
+  }).join("") : '<tr><td colspan="' + COLS.length + '" class="empty">No champions match.</td></tr>';
   bindTips($("#fc-table tbody"));
 }
 drawTable();
-$("#fc-note").innerHTML = "Patch effect: how much this patch's champion and item changes move the forecast, in percentage points. Hover it to see why. " +
+$("#fc-note").innerHTML = "Predicted change and actual change are measured from the champion's real winrate last patch, so you can compare what PatchCast expected with what happened. " +
+  "Patch effect: how much this patch's champion and item changes move the forecast, in percentage points. Hover it to see why. " +
   (D.impact_on ? "" : "<b>Right now testing says the patch-effect estimates don't help overall, so they are shown but not added to the forecast.</b> ") +
   "“Actual so far” appears once a champion has 200+ games on the patch.";
 
@@ -340,7 +351,9 @@ $("#ch-list").innerHTML = touched.length ? touched.map(function(c){
     '<span class="tag">' + esc(ROLE[c.role] || c.role || "") + "</span>" +
     '<span class="tag">' + (c.changed ? "champion change" : "item change") + "</span>" +
     '<span class="spacer"></span>' + arrow(c.impact) + "</div>" +
-    '<div class="note">Forecast ' + pct(c.predicted) + (c.actual != null ? " · actual so far " + pct(c.actual) + " (" + c.games.toLocaleString() + " games)" : "") + "</div>" +
+    '<div class="note">' + (c.last != null ? "Last patch " + pct(c.last) + " · " : "") +
+      "Forecast " + pct(c.predicted) + (c.pchg != null ? " (" + arrow(c.pchg) + ")" : "") +
+      (c.actual != null ? " · actual so far " + pct(c.actual) + (c.achg != null ? " (" + arrow(c.achg) + ")" : "") + " (" + c.games.toLocaleString() + " games)" : "") + "</div>" +
     (c.reasons.length ? '<ul class="why">' + c.reasons.map(function(r){
       return '<li><span class="' + (r.dir > 0 ? "up" : "down") + '">' + (r.dir > 0 ? "▲" : "▼") + "</span> " + esc(r.what) + "</li>";
     }).join("") + "</ul>" : "") + "</div></div>";

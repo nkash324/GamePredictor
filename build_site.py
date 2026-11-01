@@ -123,6 +123,8 @@ def build_forecast(cp, X, target, names):
     rows = cp[(cp["patch"] == target) & (cp["recent_games"].fillna(0) > 0)]
     base, best, bold = pr.parts(rows, X)
     contrib = pr.contributions(rows, X)
+    # last patch's real winrate, for "predicted change" vs "actual change"
+    prev = {(r.champion_id, r.patch): (r.winrate, r.games) for r in cp[["champion_id", "patch", "winrate", "games"]].itertuples()}
     out = []
     for i in rows.index:
         r = rows.loc[i]
@@ -135,6 +137,8 @@ def build_forecast(cp, X, target, names):
                 reasons.append({"what": reason_name(col), "dir": 1 if v > 0 else -1})
         games = r.get("games")
         has_actual = pd.notna(games) and games >= MIN_GAMES_SHOWN
+        last_wr, last_games = prev.get((r["champion_id"], r.get("prev_patch")), (None, None))
+        has_last = last_wr is not None and pd.notna(last_wr) and pd.notna(last_games) and last_games >= MIN_GAMES_SHOWN
         out.append({
             "id": r["champion_id"], "name": pretty(r["champion_id"], names),
             "role": r.get("role") if isinstance(r.get("role"), str) else None,
@@ -145,6 +149,7 @@ def build_forecast(cp, X, target, names):
             "high": r2(base[i] + best[i] + 1.96 * pr.s["sd_true"]),
             "actual": r2(r["winrate"]) if has_actual else None,
             "games": int(games) if has_actual else None,
+            "last": r2(last_wr) if has_last else None,
             "reasons": reasons,
         })
     return out, len(past), pr
